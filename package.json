@@ -33,7 +33,6 @@
     "axios": "^1.11.0",
     "bcryptjs": "^3.0.2",
     "better-sqlite3": "^12.2.0",
-    "cap": "^0.2.1",
     "cookie": "^1.0.2",
     "cors": "^2.8.5",
     "crypto": "^1.0.1",
@@ -60,5 +59,8 @@
     "concurrently": "^9.2.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.2"
+  },
+  "optionalDependencies": {
+    "cap": "^0.2.1"
   }
 }

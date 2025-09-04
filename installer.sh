@@ -151,6 +151,60 @@ install_git() {
     fi
 }
 
+# Install build tools for native modules
+install_build_tools() {
+    if [[ "$OS" == "linux" ]]; then
+        print_info "Installing build tools for native modules..."
+        
+        case "$DISTRO" in
+            ubuntu|debian|raspbian)
+                if ! command_exists make || ! command_exists gcc; then
+                    apt-get update && apt-get install -y build-essential python3
+                    print_success "Build tools installed"
+                else
+                    print_success "Build tools already installed"
+                fi
+                ;;
+            centos|rhel|rocky|almalinux)
+                if ! command_exists make || ! command_exists gcc; then
+                    yum groupinstall -y "Development Tools"
+                    yum install -y python3
+                    print_success "Build tools installed"
+                else
+                    print_success "Build tools already installed"
+                fi
+                ;;
+            fedora)
+                if ! command_exists make || ! command_exists gcc; then
+                    dnf groupinstall -y "Development Tools"
+                    dnf install -y python3
+                    print_success "Build tools installed"
+                else
+                    print_success "Build tools already installed"
+                fi
+                ;;
+            arch|manjaro)
+                if ! command_exists make || ! command_exists gcc; then
+                    pacman -S --noconfirm base-devel python
+                    print_success "Build tools installed"
+                else
+                    print_success "Build tools already installed"
+                fi
+                ;;
+            *)
+                print_warning "Cannot install build tools automatically for $DISTRO"
+                ;;
+        esac
+    elif [[ "$OS" == "macos" ]]; then
+        if ! command_exists make; then
+            print_info "Installing Xcode Command Line Tools..."
+            xcode-select --install 2>/dev/null || true
+        else
+            print_success "Build tools already installed"
+        fi
+    fi
+}
+
 # Install PM2
 install_pm2() {
     if command_exists pm2; then
@@ -300,12 +354,21 @@ EOF
     # Install dependencies
     cd "$SERVER_PATH"
     print_info "Installing server dependencies..."
-    npm install
+    
+    # Try to install with optional dependencies first
+    if ! npm install 2>/dev/null; then
+        print_warning "Some optional native modules failed to install"
+        print_info "Installing without optional dependencies..."
+        npm install --no-optional || {
+            print_error "Failed to install server dependencies"
+            return 1
+        }
+    fi
     
     # Build TypeScript if needed
     if [[ -f "$SERVER_PATH/tsconfig.json" ]] || [[ -f "$SERVER_PATH/index.ts" ]]; then
         print_info "Building TypeScript server..."
-        npm run build 2>/dev/null || true
+        npm run build 2>/dev/null || print_warning "Build step failed, server may need manual configuration"
     fi
     
     # Generate API key
@@ -444,6 +507,7 @@ main() {
     print_info "Checking prerequisites..."
     install_nodejs
     install_git
+    install_build_tools
     install_pm2
     
     # Create installation directory

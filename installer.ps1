@@ -272,7 +272,22 @@ app.listen(PORT, () => {
     # Install dependencies
     Set-Location $serverPath
     Write-Info "Installing server dependencies..."
-    npm install
+    
+    # Try to install with optional dependencies first
+    try {
+        npm install 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            throw "npm install failed"
+        }
+    } catch {
+        Write-Warning "Some optional native modules failed to install"
+        Write-Info "Installing without optional dependencies..."
+        npm install --no-optional
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "Failed to install server dependencies"
+            return $false
+        }
+    }
     
     # Build TypeScript if needed
     if ((Test-Path "$serverPath\tsconfig.json") -or (Test-Path "$serverPath\index.ts")) {
@@ -280,7 +295,7 @@ app.listen(PORT, () => {
         try {
             npm run build
         } catch {
-            Write-Warning "Build step skipped"
+            Write-Warning "Build step failed, server may need manual configuration"
         }
     }
     
