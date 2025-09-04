@@ -374,19 +374,21 @@ EOF
 
 # Show menu
 show_menu() {
-    clear
-    echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║           VaultScope Statistics Installer               ║${NC}"
-    echo -e "${CYAN}║                    Version 1.0.0                        ║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
-    echo
-    print_info "What would you like to install?"
-    echo "1. Client only"
-    echo "2. Server only"
-    echo "3. Both Client and Server"
-    echo "4. Exit"
-    echo
+    # Display menu to stderr so it doesn't get captured
+    echo >&2
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}" >&2
+    echo -e "${CYAN}║           VaultScope Statistics Installer               ║${NC}" >&2
+    echo -e "${CYAN}║                    Version 1.0.0                        ║${NC}" >&2
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}" >&2
+    echo >&2
+    echo -e "${CYAN}ℹ${NC} What would you like to install?" >&2
+    echo "  1. Client only" >&2
+    echo "  2. Server only" >&2
+    echo "  3. Both Client and Server" >&2
+    echo "  4. Exit" >&2
+    echo >&2
     read -p "Enter your choice (1-4): " CHOICE
+    # Only output the choice to stdout for capture
     echo "$CHOICE"
 }
 
@@ -420,24 +422,27 @@ main() {
     # Get user choice
     CHOICE=$(show_menu)
     
+    # Debug output
+    # echo "DEBUG: Choice captured: '$CHOICE'"
+    
     case "$CHOICE" in
-        1)
+        "1")
             install_client
             ;;
-        2)
+        "2")
             install_server
             ;;
-        3)
+        "3")
             install_server
             echo
             install_client
             ;;
-        4)
+        "4")
             print_info "Installation cancelled"
             exit 0
             ;;
         *)
-            print_error "Invalid choice"
+            print_error "Invalid choice: '$CHOICE'"
             exit 1
             ;;
     esac
