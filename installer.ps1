@@ -1,4 +1,5 @@
 # VaultScope Statistics Installer for Windows
+# Version 1.0.0
 # Requires Administrator privileges
 
 param(
@@ -9,262 +10,345 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = 'SilentlyContinue'
 
 # Colors for output
-function Write-ColorOutput($ForegroundColor) {
-    $fc = $host.UI.RawUI.ForegroundColor
-    $host.UI.RawUI.ForegroundColor = $ForegroundColor
-    if ($args) {
-        Write-Output $args
-    }
-    $host.UI.RawUI.ForegroundColor = $fc
+function Write-Success { 
+    Write-Host "✓ " -ForegroundColor Green -NoNewline
+    Write-Host $args[0]
 }
 
-function Write-Success { Write-ColorOutput Green $args }
-function Write-Info { Write-ColorOutput Cyan $args }
-function Write-Warning { Write-ColorOutput Yellow $args }
-function Write-Error { Write-ColorOutput Red $args }
+function Write-Info { 
+    Write-Host "ℹ " -ForegroundColor Cyan -NoNewline
+    Write-Host $args[0]
+}
+
+function Write-Warning { 
+    Write-Host "⚠ " -ForegroundColor Yellow -NoNewline
+    Write-Host $args[0]
+}
+
+function Write-Error { 
+    Write-Host "✗ " -ForegroundColor Red -NoNewline
+    Write-Host $args[0]
+}
 
 # Check for Administrator privileges
-if (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+function Test-Administrator {
+    $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($currentUser)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+if (-not (Test-Administrator)) {
     Write-Error "This script requires Administrator privileges."
     Write-Warning "Please run PowerShell as Administrator and try again."
+    Write-Host ""
+    Write-Host "Right-click on PowerShell and select 'Run as Administrator'"
+    pause
     exit 1
 }
 
 Clear-Host
-Write-Info @"
-TPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPW
-Q                                                            Q
-Q           VaultScope Statistics Installer                 Q
-Q                  Version 1.0.0                             Q
-Q                                                            Q
-ZPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP]
-"@
+Write-Host "╔══════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+Write-Host "║           VaultScope Statistics Installer               ║" -ForegroundColor Cyan
+Write-Host "║                    Version 1.0.0                        ║" -ForegroundColor Cyan
+Write-Host "╚══════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host ""
 
 # Function to check if a command exists
-function Test-Command($command) {
+function Test-Command {
+    param($command)
     try {
-        Get-Command $command -ErrorAction Stop | Out-Null
-        return $true
+        if (Get-Command $command -ErrorAction Stop) {
+            return $true
+        }
     } catch {
         return $false
     }
 }
 
-# Function to install Node.js if not present
+# Function to install Node.js
 function Install-NodeJS {
+    Write-Info "Checking Node.js..."
+    
     if (Test-Command "node") {
         $nodeVersion = node --version
         Write-Success "Node.js is already installed (version $nodeVersion)"
-    } else {
-        Write-Info "Installing Node.js..."
-        $nodeUrl = "https://nodejs.org/dist/v20.11.0/node-v20.11.0-x64.msi"
-        $nodeMsi = "$env:TEMP\node-installer.msi"
         
-        Invoke-WebRequest -Uri $nodeUrl -OutFile $nodeMsi
-        Start-Process msiexec.exe -Wait -ArgumentList "/i", $nodeMsi, "/quiet"
-        Remove-Item $nodeMsi
+        # Check if version is 18+
+        $majorVersion = [int]($nodeVersion -replace 'v(\d+)\..*', '$1')
+        if ($majorVersion -lt 18) {
+            Write-Warning "Node.js version is less than 18. Please update manually."
+            return $false
+        }
+        return $true
+    }
+    
+    Write-Info "Installing Node.js v20..."
+    $nodeUrl = "https://nodejs.org/dist/v20.11.0/node-v20.11.0-x64.msi"
+    $nodeMsi = "$env:TEMP\node-installer.msi"
+    
+    try {
+        Write-Info "Downloading Node.js..."
+        Invoke-WebRequest -Uri $nodeUrl -OutFile $nodeMsi -UseBasicParsing
+        
+        Write-Info "Installing Node.js (this may take a few minutes)..."
+        $process = Start-Process msiexec.exe -ArgumentList "/i", "`"$nodeMsi`"", "/quiet", "/norestart" -Wait -PassThru
+        
+        if ($process.ExitCode -ne 0) {
+            throw "Node.js installation failed with exit code: $($process.ExitCode)"
+        }
+        
+        Remove-Item $nodeMsi -Force
         
         # Refresh PATH
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
         
         Write-Success "Node.js installed successfully"
+        return $true
+    } catch {
+        Write-Error "Failed to install Node.js: $_"
+        return $false
     }
 }
 
-# Function to install Git if not present
+# Function to install Git
 function Install-Git {
+    Write-Info "Checking Git..."
+    
     if (Test-Command "git") {
         $gitVersion = git --version
-        Write-Success "Git is already installed (version $gitVersion)"
-    } else {
-        Write-Info "Installing Git..."
-        $gitUrl = "https://github.com/git-for-windows/git/releases/download/v2.43.0.windows.1/Git-2.43.0-64-bit.exe"
-        $gitExe = "$env:TEMP\git-installer.exe"
+        Write-Success "Git is already installed ($gitVersion)"
+        return $true
+    }
+    
+    Write-Info "Installing Git..."
+    $gitUrl = "https://github.com/git-for-windows/git/releases/download/v2.43.0.windows.1/Git-2.43.0-64-bit.exe"
+    $gitExe = "$env:TEMP\git-installer.exe"
+    
+    try {
+        Write-Info "Downloading Git..."
+        Invoke-WebRequest -Uri $gitUrl -OutFile $gitExe -UseBasicParsing
         
-        Invoke-WebRequest -Uri $gitUrl -OutFile $gitExe
-        Start-Process $gitExe -Wait -ArgumentList "/VERYSILENT"
-        Remove-Item $gitExe
+        Write-Info "Installing Git (this may take a few minutes)..."
+        $process = Start-Process $gitExe -ArgumentList "/VERYSILENT", "/NORESTART" -Wait -PassThru
+        
+        if ($process.ExitCode -ne 0) {
+            throw "Git installation failed with exit code: $($process.ExitCode)"
+        }
+        
+        Remove-Item $gitExe -Force
         
         # Refresh PATH
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
         
         Write-Success "Git installed successfully"
+        return $true
+    } catch {
+        Write-Error "Failed to install Git: $_"
+        return $false
     }
 }
 
-# Function to install PM2 globally
+# Function to install PM2
 function Install-PM2 {
+    Write-Info "Checking PM2..."
+    
     if (Test-Command "pm2") {
         Write-Success "PM2 is already installed"
-    } else {
-        Write-Info "Installing PM2 globally..."
+        return $true
+    }
+    
+    Write-Info "Installing PM2 globally..."
+    try {
         npm install -g pm2
         Write-Success "PM2 installed successfully"
+        return $true
+    } catch {
+        Write-Error "Failed to install PM2: $_"
+        return $false
     }
 }
 
-# Function to install Cloudflared
-function Install-Cloudflared {
-    $cloudflaredPath = "$InstallPath\cloudflared\cloudflared.exe"
-    if (Test-Path $cloudflaredPath) {
-        Write-Success "Cloudflared is already installed"
-    } else {
-        Write-Info "Installing Cloudflared..."
-        $cloudflaredUrl = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
-        New-Item -ItemType Directory -Path "$InstallPath\cloudflared" -Force | Out-Null
-        Invoke-WebRequest -Uri $cloudflaredUrl -OutFile $cloudflaredPath
-        Write-Success "Cloudflared installed successfully"
-    }
-}
-
-# Function to setup Windows service
-function Setup-WindowsService {
+# Clone repository
+function Clone-Repository {
     param(
-        [string]$ServiceName,
-        [string]$DisplayName,
-        [string]$Description,
-        [string]$WorkingDirectory,
-        [string]$StartCommand
+        [string]$TargetDir,
+        [string]$Component
     )
     
-    Write-Info "Setting up Windows service: $DisplayName"
+    Write-Info "Downloading $Component..."
     
-    # Install PM2 Windows Service
-    Set-Location $WorkingDirectory
+    $tempDir = "$env:TEMP\vaultscope-$(Get-Random)"
+    New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
     
-    # Create PM2 ecosystem file
-    $ecosystem = @"
-module.exports = {
-  apps: [{
-    name: '$ServiceName',
-    script: '$StartCommand',
-    cwd: '$WorkingDirectory',
-    autorestart: true,
-    watch: false,
-    max_memory_restart: '1G',
-    env: {
-      NODE_ENV: 'production'
+    try {
+        git clone --quiet https://github.com/VaultScope/statistics.git $tempDir 2>$null
+        
+        if (Test-Path "$tempDir\$Component") {
+            Copy-Item -Path "$tempDir\$Component\*" -Destination $TargetDir -Recurse -Force
+        }
+    } catch {
+        Write-Warning "Repository not available, creating basic structure"
+        New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null
+    } finally {
+        if (Test-Path $tempDir) {
+            Remove-Item -Path $tempDir -Recurse -Force
+        }
     }
-  }]
 }
-"@
+
+# Install Server
+function Install-Server {
+    Write-Info "Installing VaultScope Statistics Server..."
     
-    $ecosystem | Out-File -FilePath "$WorkingDirectory\ecosystem.config.js" -Encoding UTF8
+    $serverPath = "$InstallPath\server"
+    New-Item -ItemType Directory -Path $serverPath -Force | Out-Null
     
-    # Start with PM2
-    pm2 start ecosystem.config.js
+    # Clone or create server
+    Clone-Repository -TargetDir $serverPath -Component "server"
+    
+    # Create basic server structure if not exists
+    if (-not (Test-Path "$serverPath\package.json")) {
+        @'
+{
+  "name": "vaultscope-statistics-server",
+  "version": "1.0.0",
+  "description": "VaultScope Statistics Server",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "systeminformation": "^5.21.20"
+  }
+}
+'@ | Out-File -FilePath "$serverPath\package.json" -Encoding UTF8
+    }
+    
+    # Create basic server if not exists
+    if (-not (Test-Path "$serverPath\index.js")) {
+        @'
+const express = require('express');
+const cors = require('cors');
+const app = express();
+const PORT = process.env.PORT || 4000;
+
+app.use(cors());
+app.use(express.json());
+
+app.get('/health', (req, res) => {
+    res.send('OK');
+});
+
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
+'@ | Out-File -FilePath "$serverPath\index.js" -Encoding UTF8
+    }
+    
+    # Install dependencies
+    Set-Location $serverPath
+    Write-Info "Installing server dependencies..."
+    npm install --production
+    
+    # Generate API key
+    $apiKey = -join ((65..90) + (97..122) + (48..57) | Get-Random -Count 48 | ForEach-Object {[char]$_})
+    
+    # Create .env file
+    @"
+PORT=4000
+API_KEY=$apiKey
+NODE_ENV=production
+"@ | Out-File -FilePath "$serverPath\.env" -Encoding UTF8
+    
+    # Setup PM2
+    Write-Info "Setting up PM2 service for server..."
+    pm2 start index.js --name "vaultscope-server"
     pm2 save
     
     # Install PM2 as Windows service
-    npm install -g pm2-windows-service
-    pm2-service-install -n "VaultScope-$ServiceName"
-    
-    Write-Success "Service installed: $DisplayName"
-}
-
-# Function to setup Nginx reverse proxy
-function Setup-Nginx {
-    param(
-        [string]$AppType,
-        [int]$Port,
-        [string]$Domain
-    )
-    
-    Write-Info "Setting up Nginx reverse proxy for $AppType..."
-    
-    # Download and install Nginx if not present
-    $nginxPath = "$InstallPath\nginx"
-    if (-not (Test-Path "$nginxPath\nginx.exe")) {
-        Write-Info "Downloading Nginx..."
-        $nginxUrl = "https://nginx.org/download/nginx-1.24.0.zip"
-        $nginxZip = "$env:TEMP\nginx.zip"
-        
-        Invoke-WebRequest -Uri $nginxUrl -OutFile $nginxZip
-        Expand-Archive -Path $nginxZip -DestinationPath $InstallPath -Force
-        Move-Item "$InstallPath\nginx-*" $nginxPath
-        Remove-Item $nginxZip
+    try {
+        npm install -g pm2-windows-service
+        pm2-service-install -n "VaultScope-Server"
+    } catch {
+        Write-Warning "Could not install PM2 Windows service, server will need manual start"
     }
     
-    # Create Nginx configuration
-    $nginxConfig = @"
-server {
-    listen 80;
-    server_name $Domain;
+    Write-Success "Server installed successfully!"
+    Write-Info "Server will run on: http://localhost:4000"
+    Write-Warning "API Key: $apiKey"
+    Write-Warning "Please save this API key securely!"
+    
+    $apiKey | Out-File -FilePath "$InstallPath\server-api-key.txt"
+    
+    return $true
+}
 
-    location / {
-        proxy_pass http://localhost:$Port;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade `$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host `$host;
-        proxy_cache_bypass `$http_upgrade;
-        proxy_set_header X-Real-IP `$remote_addr;
-        proxy_set_header X-Forwarded-For `$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto `$scheme;
+# Install Client
+function Install-Client {
+    Write-Info "Installing VaultScope Statistics Client..."
+    
+    $clientPath = "$InstallPath\client"
+    New-Item -ItemType Directory -Path $clientPath -Force | Out-Null
+    
+    # Clone or create client
+    Clone-Repository -TargetDir $clientPath -Component "client"
+    
+    # Create basic client structure if not exists
+    if (-not (Test-Path "$clientPath\package.json")) {
+        @'
+{
+  "name": "vaultscope-statistics-client",
+  "version": "1.0.0",
+  "description": "VaultScope Statistics Client",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "next": "^14.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  }
+}
+'@ | Out-File -FilePath "$clientPath\package.json" -Encoding UTF8
     }
-}
-"@
     
-    # Add to sites-enabled
-    $sitesPath = "$nginxPath\conf\sites-enabled"
-    New-Item -ItemType Directory -Path $sitesPath -Force | Out-Null
-    $nginxConfig | Out-File -FilePath "$sitesPath\vaultscope-$AppType.conf" -Encoding UTF8
+    # Install dependencies
+    Set-Location $clientPath
+    Write-Info "Installing client dependencies..."
+    npm install --production
     
-    # Update main nginx.conf to include sites-enabled
-    $mainConfig = Get-Content "$nginxPath\conf\nginx.conf"
-    if ($mainConfig -notmatch "sites-enabled") {
-        $mainConfig = $mainConfig -replace "http \{", @"
-http {
-    include sites-enabled/*.conf;
-"@
-        $mainConfig | Out-File -FilePath "$nginxPath\conf\nginx.conf" -Encoding UTF8
+    # Try to build
+    if ((Test-Path "$clientPath\next.config.js") -or (Test-Path "$clientPath\next.config.mjs")) {
+        Write-Info "Building client..."
+        try {
+            npm run build
+        } catch {
+            Write-Warning "Build failed, client will run in dev mode"
+        }
     }
     
-    # Start Nginx as service
-    Start-Process "$nginxPath\nginx.exe" -WorkingDirectory $nginxPath
+    # Create .env file
+    @"
+NEXT_PUBLIC_API_URL=http://localhost:4000
+NODE_ENV=production
+"@ | Out-File -FilePath "$clientPath\.env.production" -Encoding UTF8
     
-    Write-Success "Nginx configured for $Domain -> localhost:$Port"
+    # Setup PM2
+    Write-Info "Setting up PM2 service for client..."
+    pm2 start "npm run start" --name "vaultscope-client"
+    pm2 save
+    
+    Write-Success "Client installed successfully!"
+    Write-Info "Client will run on: http://localhost:3000"
+    
+    return $true
 }
 
-# Function to setup Cloudflared tunnel
-function Setup-Cloudflared {
-    param(
-        [string]$AppType,
-        [int]$Port,
-        [string]$Domain
-    )
-    
-    Write-Info "Setting up Cloudflare tunnel for $AppType..."
-    
-    $cloudflaredPath = "$InstallPath\cloudflared"
-    $configFile = "$cloudflaredPath\config-$AppType.yml"
-    
-    # Create tunnel configuration
-    $tunnelConfig = @"
-url: http://localhost:$Port
-tunnel: vaultscope-$AppType
-credentials-file: $cloudflaredPath\credentials.json
-"@
-    
-    $tunnelConfig | Out-File -FilePath $configFile -Encoding UTF8
-    
-    Write-Info "Please authenticate with Cloudflare..."
-    & "$cloudflaredPath\cloudflared.exe" tunnel login
-    
-    Write-Info "Creating tunnel..."
-    & "$cloudflaredPath\cloudflared.exe" tunnel create vaultscope-$AppType
-    
-    Write-Info "Routing traffic to $Domain..."
-    & "$cloudflaredPath\cloudflared.exe" tunnel route dns vaultscope-$AppType $Domain
-    
-    # Create service for cloudflared
-    & "$cloudflaredPath\cloudflared.exe" service install
-    & "$cloudflaredPath\cloudflared.exe" tunnel run --config $configFile vaultscope-$AppType
-    
-    Write-Success "Cloudflare tunnel configured for $Domain"
-}
-
-# Main installation menu
+# Main menu
 function Show-Menu {
     Write-Host ""
     Write-Info "What would you like to install?"
@@ -278,193 +362,45 @@ function Show-Menu {
     return $choice
 }
 
-# Reverse proxy menu
-function Show-ProxyMenu {
-    Write-Host ""
-    Write-Info "Would you like to setup a reverse proxy?"
-    Write-Host "1. No reverse proxy (localhost only)"
-    Write-Host "2. Cloudflare Tunnel (recommended)"
-    Write-Host "3. Nginx"
-    Write-Host "4. Both Cloudflare and Nginx"
-    Write-Host ""
-    
-    $choice = Read-Host "Enter your choice (1-4)"
-    return $choice
-}
-
-# Install client
-function Install-Client {
-    Write-Info "Installing VaultScope Statistics Client..."
-    
-    $clientPath = "$InstallPath\client"
-    
-    # Clone repository
-    Write-Info "Cloning repository..."
-    if (Test-Path $clientPath) {
-        Remove-Item -Recurse -Force $clientPath
-    }
-    git clone https://github.com/VaultScope/statistics.git "$InstallPath\temp"
-    Move-Item "$InstallPath\temp\client" $clientPath
-    
-    # Install dependencies
-    Write-Info "Installing dependencies..."
-    Set-Location $clientPath
-    npm install
-    
-    # Build the client
-    Write-Info "Building client..."
-    npm run build
-    
-    # Setup environment variables
-    $envContent = @"
-# Client Configuration
-NEXT_PUBLIC_API_URL=http://localhost:3000
-NODE_ENV=production
-"@
-    $envContent | Out-File -FilePath "$clientPath\.env.production" -Encoding UTF8
-    
-    # Setup reverse proxy if requested
-    $proxyChoice = Show-ProxyMenu
-    $clientPort = 3000
-    
-    switch ($proxyChoice) {
-        "2" {
-            Install-Cloudflared
-            $domain = Read-Host "Enter your domain for the client (e.g., stats.yourdomain.com)"
-            Setup-Cloudflared -AppType "client" -Port $clientPort -Domain $domain
-        }
-        "3" {
-            $domain = Read-Host "Enter your domain for the client (e.g., stats.yourdomain.com)"
-            Setup-Nginx -AppType "client" -Port $clientPort -Domain $domain
-        }
-        "4" {
-            Install-Cloudflared
-            $domain = Read-Host "Enter your domain for the client (e.g., stats.yourdomain.com)"
-            Setup-Cloudflared -AppType "client" -Port $clientPort -Domain $domain
-            Setup-Nginx -AppType "client" -Port $clientPort -Domain $domain
-        }
-    }
-    
-    # Setup Windows service
-    Setup-WindowsService -ServiceName "Statistics-Client" `
-                        -DisplayName "VaultScope Statistics Client" `
-                        -Description "VaultScope Statistics monitoring client" `
-                        -WorkingDirectory $clientPath `
-                        -StartCommand "npm start"
-    
-    Write-Success "Client installed successfully!"
-    Write-Info "Client is running on http://localhost:$clientPort"
-}
-
-# Install server
-function Install-Server {
-    Write-Info "Installing VaultScope Statistics Server..."
-    
-    $serverPath = "$InstallPath\server"
-    
-    # Clone repository
-    Write-Info "Cloning repository..."
-    if (Test-Path $serverPath) {
-        Remove-Item -Recurse -Force $serverPath
-    }
-    git clone https://github.com/VaultScope/statistics.git "$InstallPath\temp"
-    Move-Item "$InstallPath\temp\server" $serverPath
-    
-    # Install dependencies
-    Write-Info "Installing dependencies..."
-    Set-Location $serverPath
-    npm install
-    
-    # Build the server
-    Write-Info "Building server..."
-    npm run build
-    
-    # Generate API key
-    $apiKey = -join ((65..90) + (97..122) + (48..57) | Get-Random -Count 32 | ForEach-Object {[char]$_})
-    
-    # Setup environment variables
-    $envContent = @"
-# Server Configuration
-PORT=4000
-API_KEY=$apiKey
-NODE_ENV=production
-"@
-    $envContent | Out-File -FilePath "$serverPath\.env" -Encoding UTF8
-    
-    Write-Warning "Your server API key is: $apiKey"
-    Write-Warning "Please save this key securely!"
-    
-    # Setup reverse proxy if requested
-    $proxyChoice = Show-ProxyMenu
-    $serverPort = 4000
-    
-    switch ($proxyChoice) {
-        "2" {
-            Install-Cloudflared
-            $domain = Read-Host "Enter your domain for the server API (e.g., api.yourdomain.com)"
-            Setup-Cloudflared -AppType "server" -Port $serverPort -Domain $domain
-        }
-        "3" {
-            $domain = Read-Host "Enter your domain for the server API (e.g., api.yourdomain.com)"
-            Setup-Nginx -AppType "server" -Port $serverPort -Domain $domain
-        }
-        "4" {
-            Install-Cloudflared
-            $domain = Read-Host "Enter your domain for the server API (e.g., api.yourdomain.com)"
-            Setup-Cloudflared -AppType "server" -Port $serverPort -Domain $domain
-            Setup-Nginx -AppType "server" -Port $serverPort -Domain $domain
-        }
-    }
-    
-    # Setup Windows service
-    Setup-WindowsService -ServiceName "Statistics-Server" `
-                        -DisplayName "VaultScope Statistics Server" `
-                        -Description "VaultScope Statistics monitoring server" `
-                        -WorkingDirectory $serverPath `
-                        -StartCommand "npm start"
-    
-    Write-Success "Server installed successfully!"
-    Write-Info "Server is running on http://localhost:$serverPort"
-    Write-Info "API Key: $apiKey"
-}
-
-# Cleanup temp directory
-function Cleanup {
-    if (Test-Path "$InstallPath\temp") {
-        Remove-Item -Recurse -Force "$InstallPath\temp"
-    }
-}
-
 # Main execution
 try {
     # Install prerequisites
     Write-Info "Checking prerequisites..."
-    Install-NodeJS
-    Install-Git
-    Install-PM2
+    
+    if (-not (Install-NodeJS)) {
+        throw "Failed to install Node.js"
+    }
+    
+    if (-not (Install-Git)) {
+        throw "Failed to install Git"
+    }
+    
+    if (-not (Install-PM2)) {
+        throw "Failed to install PM2"
+    }
     
     # Create installation directory
-    if (-not (Test-Path $InstallPath)) {
-        New-Item -ItemType Directory -Path $InstallPath -Force | Out-Null
-    }
+    New-Item -ItemType Directory -Path $InstallPath -Force | Out-Null
     
     # Show menu and process choice
     $choice = Show-Menu
     
+    $success = $false
     switch ($choice) {
         "1" {
-            Install-Client
+            $success = Install-Client
         }
         "2" {
-            Install-Server
+            $success = Install-Server
         }
         "3" {
-            Install-Server
-            Write-Host ""
-            Install-Client
+            if (Install-Server) {
+                Write-Host ""
+                $success = Install-Client
+            }
         }
         "4" {
-            Write-Info "Installation cancelled."
+            Write-Info "Installation cancelled"
             exit 0
         }
         default {
@@ -473,23 +409,33 @@ try {
         }
     }
     
-    # Cleanup
-    Cleanup
-    
-    Write-Host ""
-    Write-Success "PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP"
-    Write-Success "Installation completed successfully!"
-    Write-Success "PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP"
-    Write-Host ""
-    Write-Info "Services have been configured to start automatically on boot."
-    Write-Info "You can manage services using PM2 commands:"
-    Write-Host "  pm2 list      - Show all services"
-    Write-Host "  pm2 restart   - Restart services"
-    Write-Host "  pm2 logs      - View logs"
-    Write-Host ""
+    if ($success) {
+        Write-Host ""
+        Write-Host "═══════════════════════════════════════════════════════════" -ForegroundColor Green
+        Write-Success "Installation completed successfully!"
+        Write-Host "═══════════════════════════════════════════════════════════" -ForegroundColor Green
+        Write-Host ""
+        
+        Write-Info "Services are managed by PM2"
+        Write-Host "  pm2 list              - Show all services"
+        Write-Host "  pm2 restart all       - Restart services"
+        Write-Host "  pm2 logs              - View logs"
+        Write-Host "  pm2 stop all          - Stop all services"
+        Write-Host ""
+        
+        if (Test-Path "$InstallPath\server-api-key.txt") {
+            Write-Warning "Server API Key saved to: $InstallPath\server-api-key.txt"
+        }
+        
+        Write-Host ""
+        Write-Info "Press any key to exit..."
+        pause
+    }
     
 } catch {
     Write-Error "Installation failed: $_"
-    Cleanup
+    Write-Host ""
+    Write-Info "Press any key to exit..."
+    pause
     exit 1
 }
