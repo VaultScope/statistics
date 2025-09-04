@@ -361,11 +361,17 @@ EOF
     cd "$SERVER_PATH"
     print_info "Installing server dependencies..."
     
-    # First attempt: try with --no-optional to skip problematic native modules
-    if ! npm install --no-optional; then
+    # Remove cap from package.json if it exists
+    if [[ -f "$SERVER_PATH/package.json" ]]; then
+        # Use sed to remove cap dependency
+        sed -i '/"cap":/d' "$SERVER_PATH/package.json" 2>/dev/null || true
+    fi
+    
+    # Install with --no-optional to skip problematic native modules
+    npm install --no-optional --loglevel=error || {
         print_error "Failed to install server dependencies"
         return 1
-    fi
+    }
     
     print_success "Server dependencies installed successfully"
     
