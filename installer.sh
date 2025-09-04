@@ -167,27 +167,30 @@ clone_repository() {
     local TARGET_DIR=$1
     local COMPONENT=$2
     
-    print_info "Downloading $COMPONENT..."
+    print_info "Setting up $COMPONENT..."
     
-    # Create temp directory
+    # Create target directory
+    mkdir -p "$TARGET_DIR"
+    
+    # Try to clone from repository
     TEMP_DIR="/tmp/vaultscope-$$"
     mkdir -p "$TEMP_DIR"
     
-    # Clone repository
-    if ! git clone --quiet https://github.com/VaultScope/statistics.git "$TEMP_DIR" 2>/dev/null; then
-        print_warning "Repository not available, using local files"
-        # For testing, create basic structure
-        mkdir -p "$TARGET_DIR"
-        return 0
+    if git clone --quiet https://github.com/VaultScope/statistics.git "$TEMP_DIR" 2>/dev/null; then
+        # If repository exists and has the component
+        if [[ -d "$TEMP_DIR/$COMPONENT" ]]; then
+            cp -r "$TEMP_DIR/$COMPONENT/"* "$TARGET_DIR/" 2>/dev/null || true
+            rm -rf "$TEMP_DIR"
+            return 0
+        fi
     fi
     
-    # Move component to target
-    if [[ -d "$TEMP_DIR/$COMPONENT" ]]; then
-        cp -r "$TEMP_DIR/$COMPONENT" "$TARGET_DIR"
-    fi
+    # Cleanup temp if exists
+    rm -rf "$TEMP_DIR" 2>/dev/null || true
     
-    # Cleanup
-    rm -rf "$TEMP_DIR"
+    # Repository not available or component not found
+    print_warning "Using fallback configuration for $COMPONENT"
+    return 0
 }
 
 # Setup systemd service (Linux)
@@ -211,10 +214,12 @@ After=network.target
 Type=simple
 User=$(whoami)
 WorkingDirectory=$WORKING_DIR
-ExecStart=$(which node) $WORKING_DIR/index.js
+ExecStart=$(which node) $WORKING_DIR/dist/index.js
 Restart=on-failure
 RestartSec=10
 Environment="NODE_ENV=production"
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
@@ -236,31 +241,45 @@ install_server() {
     # Clone or create server
     clone_repository "$SERVER_PATH" "server"
     
-    # Create basic server structure if not exists
-    if [[ ! -f "$SERVER_PATH/package.json" ]]; then
-        cat > "$SERVER_PATH/package.json" << 'EOF'
+    # Check if we have the actual TypeScript server files
+    if [[ -f "$SERVER_PATH/index.ts" ]] && [[ -f "$SERVER_PATH/package.json" ]]; then
+        print_info "Found TypeScript server files"
+    else
+        # Create basic server structure as fallback
+        if [[ ! -f "$SERVER_PATH/package.json" ]]; then
+            cat > "$SERVER_PATH/package.json" << 'EOF'
 {
   "name": "vaultscope-statistics-server",
   "version": "1.0.0",
   "description": "VaultScope Statistics Server",
-  "main": "index.js",
+  "main": "dist/index.js",
   "scripts": {
-    "start": "node index.js"
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node index.ts"
   },
   "dependencies": {
     "express": "^4.18.2",
     "cors": "^2.8.5",
-    "systeminformation": "^5.21.20"
+    "systeminformation": "^5.21.20",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.0",
+    "ts-node": "^10.9.1"
   }
 }
 EOF
-    fi
-    
-    # Create basic server if not exists
-    if [[ ! -f "$SERVER_PATH/index.js" ]]; then
-        cat > "$SERVER_PATH/index.js" << 'EOF'
+        fi
+        
+        # Create basic server if not exists
+        if [[ ! -f "$SERVER_PATH/index.js" ]] && [[ ! -f "$SERVER_PATH/index.ts" ]]; then
+            cat > "$SERVER_PATH/index.js" << 'EOF'
 const express = require('express');
 const cors = require('cors');
+require('dotenv').config();
+
 const app = express();
 const PORT = process.env.PORT || 4000;
 
@@ -268,19 +287,26 @@ app.use(cors());
 app.use(express.json());
 
 app.get('/health', (req, res) => {
-    res.send('OK');
+    res.json({ status: 'OK', timestamp: new Date() });
 });
 
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`VaultScope Statistics Server running on port ${PORT}`);
 });
 EOF
+        fi
     fi
     
     # Install dependencies
     cd "$SERVER_PATH"
     print_info "Installing server dependencies..."
-    npm install --production
+    npm install
+    
+    # Build TypeScript if needed
+    if [[ -f "$SERVER_PATH/tsconfig.json" ]] || [[ -f "$SERVER_PATH/index.ts" ]]; then
+        print_info "Building TypeScript server..."
+        npm run build 2>/dev/null || true
+    fi
     
     # Generate API key
     API_KEY=$(openssl rand -hex 24 2>/dev/null || head -c 48 /dev/urandom | base64 | tr -d '+/=' | head -c 48)
@@ -298,7 +324,14 @@ EOF
     else
         # macOS - use PM2
         cd "$SERVER_PATH"
-        pm2 start index.js --name "vaultscope-server"
+        # Check what to start
+        if [[ -f "dist/index.js" ]]; then
+            pm2 start dist/index.js --name "vaultscope-server"
+        elif [[ -f "index.js" ]]; then
+            pm2 start index.js --name "vaultscope-server"
+        else
+            print_error "No server entry point found"
+        fi
         pm2 save
     fi
     
@@ -374,22 +407,20 @@ EOF
 
 # Show menu
 show_menu() {
-    # Display menu to stderr so it doesn't get captured
-    echo >&2
-    echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}" >&2
-    echo -e "${CYAN}║           VaultScope Statistics Installer               ║${NC}" >&2
-    echo -e "${CYAN}║                    Version 1.0.0                        ║${NC}" >&2
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}" >&2
-    echo >&2
-    echo -e "${CYAN}ℹ${NC} What would you like to install?" >&2
-    echo "  1. Client only" >&2
-    echo "  2. Server only" >&2
-    echo "  3. Both Client and Server" >&2
-    echo "  4. Exit" >&2
-    echo >&2
-    read -p "Enter your choice (1-4): " CHOICE
-    # Only output the choice to stdout for capture
-    echo "$CHOICE"
+    echo
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║           VaultScope Statistics Installer               ║${NC}"
+    echo -e "${CYAN}║                    Version 1.0.0                        ║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo
+    echo -e "${CYAN}ℹ${NC} What would you like to install?"
+    echo "  1. Client only"
+    echo "  2. Server only"
+    echo "  3. Both Client and Server"
+    echo "  4. Exit"
+    echo
+    read -p "Enter your choice (1-4): " choice
+    echo "$choice"
 }
 
 # Cleanup
@@ -422,9 +453,6 @@ main() {
     # Get user choice
     CHOICE=$(show_menu)
     
-    # Debug output
-    # echo "DEBUG: Choice captured: '$CHOICE'"
-    
     case "$CHOICE" in
         "1")
             install_client
@@ -442,7 +470,7 @@ main() {
             exit 0
             ;;
         *)
-            print_error "Invalid choice: '$CHOICE'"
+            print_error "Invalid choice. Please run again and select 1-4."
             exit 1
             ;;
     esac

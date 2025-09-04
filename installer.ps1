@@ -175,23 +175,30 @@ function Clone-Repository {
         [string]$Component
     )
     
-    Write-Info "Downloading $Component..."
+    Write-Info "Setting up $Component..."
+    
+    # Create target directory
+    New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null
     
     $tempDir = "$env:TEMP\vaultscope-$(Get-Random)"
-    New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
     
     try {
-        git clone --quiet https://github.com/VaultScope/statistics.git $tempDir 2>$null
+        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
         
-        if (Test-Path "$tempDir\$Component") {
-            Copy-Item -Path "$tempDir\$Component\*" -Destination $TargetDir -Recurse -Force
+        # Try to clone repository
+        $gitProcess = Start-Process git -ArgumentList "clone", "--quiet", "https://github.com/VaultScope/statistics.git", "`"$tempDir`"" -Wait -PassThru -WindowStyle Hidden
+        
+        if ($gitProcess.ExitCode -eq 0 -and (Test-Path "$tempDir\$Component")) {
+            # Copy component files
+            Copy-Item -Path "$tempDir\$Component\*" -Destination $TargetDir -Recurse -Force -ErrorAction SilentlyContinue
+        } else {
+            Write-Warning "Using fallback configuration for $Component"
         }
     } catch {
-        Write-Warning "Repository not available, creating basic structure"
-        New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null
+        Write-Warning "Using fallback configuration for $Component"
     } finally {
         if (Test-Path $tempDir) {
-            Remove-Item -Path $tempDir -Recurse -Force
+            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
 }
@@ -206,31 +213,45 @@ function Install-Server {
     # Clone or create server
     Clone-Repository -TargetDir $serverPath -Component "server"
     
-    # Create basic server structure if not exists
-    if (-not (Test-Path "$serverPath\package.json")) {
-        @'
+    # Check if we have the actual TypeScript server files
+    if ((Test-Path "$serverPath\index.ts") -and (Test-Path "$serverPath\package.json")) {
+        Write-Info "Found TypeScript server files"
+    } else {
+        # Create basic server structure as fallback
+        if (-not (Test-Path "$serverPath\package.json")) {
+            @'
 {
   "name": "vaultscope-statistics-server",
   "version": "1.0.0",
   "description": "VaultScope Statistics Server",
-  "main": "index.js",
+  "main": "dist/index.js",
   "scripts": {
-    "start": "node index.js"
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node index.ts"
   },
   "dependencies": {
     "express": "^4.18.2",
     "cors": "^2.8.5",
-    "systeminformation": "^5.21.20"
+    "systeminformation": "^5.21.20",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.0",
+    "ts-node": "^10.9.1"
   }
 }
 '@ | Out-File -FilePath "$serverPath\package.json" -Encoding UTF8
-    }
-    
-    # Create basic server if not exists
-    if (-not (Test-Path "$serverPath\index.js")) {
-        @'
+        }
+        
+        # Create basic server if not exists
+        if ((-not (Test-Path "$serverPath\index.js")) -and (-not (Test-Path "$serverPath\index.ts"))) {
+            @'
 const express = require('express');
 const cors = require('cors');
+require('dotenv').config();
+
 const app = express();
 const PORT = process.env.PORT || 4000;
 
@@ -238,19 +259,30 @@ app.use(cors());
 app.use(express.json());
 
 app.get('/health', (req, res) => {
-    res.send('OK');
+    res.json({ status: 'OK', timestamp: new Date() });
 });
 
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`VaultScope Statistics Server running on port ${PORT}`);
 });
 '@ | Out-File -FilePath "$serverPath\index.js" -Encoding UTF8
+        }
     }
     
     # Install dependencies
     Set-Location $serverPath
     Write-Info "Installing server dependencies..."
-    npm install --production
+    npm install
+    
+    # Build TypeScript if needed
+    if ((Test-Path "$serverPath\tsconfig.json") -or (Test-Path "$serverPath\index.ts")) {
+        Write-Info "Building TypeScript server..."
+        try {
+            npm run build
+        } catch {
+            Write-Warning "Build step skipped"
+        }
+    }
     
     # Generate API key
     $apiKey = -join ((65..90) + (97..122) + (48..57) | Get-Random -Count 48 | ForEach-Object {[char]$_})
@@ -264,7 +296,17 @@ NODE_ENV=production
     
     # Setup PM2
     Write-Info "Setting up PM2 service for server..."
-    pm2 start index.js --name "vaultscope-server"
+    
+    # Check what to start
+    if (Test-Path "$serverPath\dist\index.js") {
+        pm2 start "$serverPath\dist\index.js" --name "vaultscope-server"
+    } elseif (Test-Path "$serverPath\index.js") {
+        pm2 start "$serverPath\index.js" --name "vaultscope-server"
+    } else {
+        Write-Error "No server entry point found"
+        return $false
+    }
+    
     pm2 save
     
     # Install PM2 as Windows service
