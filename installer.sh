@@ -419,8 +419,7 @@ show_menu() {
     echo "  3. Both Client and Server"
     echo "  4. Exit"
     echo
-    read -p "Enter your choice (1-4): " choice
-    echo "$choice"
+    read -p "Enter your choice (1-4): " CHOICE
 }
 
 # Cleanup
@@ -451,7 +450,7 @@ main() {
     mkdir -p "$INSTALL_PATH"
     
     # Get user choice
-    CHOICE=$(show_menu)
+    show_menu
     
     case "$CHOICE" in
         "1")
