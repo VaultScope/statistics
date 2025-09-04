@@ -569,7 +569,7 @@ show_menu() {
     echo "4. Exit"
     echo
     read -p "Enter your choice (1-4): " CHOICE
-    return $CHOICE
+    echo $CHOICE
 }
 
 # Main execution
@@ -592,8 +592,7 @@ main() {
     fi
     
     # Show menu and process choice
-    show_menu
-    CHOICE=$?
+    CHOICE=$(show_menu)
     
     case $CHOICE in
         1)
