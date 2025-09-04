@@ -154,12 +154,14 @@ install_git() {
 # Install build tools for native modules
 install_build_tools() {
     if [[ "$OS" == "linux" ]]; then
-        print_info "Installing build tools for native modules..."
+        print_info "Checking for build tools..."
         
         case "$DISTRO" in
             ubuntu|debian|raspbian)
                 if ! command_exists make || ! command_exists gcc; then
-                    apt-get update && apt-get install -y build-essential python3
+                    print_info "Installing build-essential..."
+                    apt-get update >/dev/null 2>&1
+                    apt-get install -y build-essential python3 >/dev/null 2>&1
                     print_success "Build tools installed"
                 else
                     print_success "Build tools already installed"
@@ -167,8 +169,9 @@ install_build_tools() {
                 ;;
             centos|rhel|rocky|almalinux)
                 if ! command_exists make || ! command_exists gcc; then
-                    yum groupinstall -y "Development Tools"
-                    yum install -y python3
+                    print_info "Installing Development Tools..."
+                    yum groupinstall -y "Development Tools" >/dev/null 2>&1
+                    yum install -y python3 >/dev/null 2>&1
                     print_success "Build tools installed"
                 else
                     print_success "Build tools already installed"
@@ -176,8 +179,9 @@ install_build_tools() {
                 ;;
             fedora)
                 if ! command_exists make || ! command_exists gcc; then
-                    dnf groupinstall -y "Development Tools"
-                    dnf install -y python3
+                    print_info "Installing Development Tools..."
+                    dnf groupinstall -y "Development Tools" >/dev/null 2>&1
+                    dnf install -y python3 >/dev/null 2>&1
                     print_success "Build tools installed"
                 else
                     print_success "Build tools already installed"
@@ -185,14 +189,16 @@ install_build_tools() {
                 ;;
             arch|manjaro)
                 if ! command_exists make || ! command_exists gcc; then
-                    pacman -S --noconfirm base-devel python
+                    print_info "Installing base-devel..."
+                    pacman -S --noconfirm base-devel python >/dev/null 2>&1
                     print_success "Build tools installed"
                 else
                     print_success "Build tools already installed"
                 fi
                 ;;
             *)
-                print_warning "Cannot install build tools automatically for $DISTRO"
+                print_warning "Please install 'make' and 'gcc' manually for $DISTRO"
+                print_info "Continuing without build tools..."
                 ;;
         esac
     elif [[ "$OS" == "macos" ]]; then
@@ -355,15 +361,13 @@ EOF
     cd "$SERVER_PATH"
     print_info "Installing server dependencies..."
     
-    # Try to install with optional dependencies first
-    if ! npm install 2>/dev/null; then
-        print_warning "Some optional native modules failed to install"
-        print_info "Installing without optional dependencies..."
-        npm install --no-optional || {
-            print_error "Failed to install server dependencies"
-            return 1
-        }
+    # First attempt: try with --no-optional to skip problematic native modules
+    if ! npm install --no-optional; then
+        print_error "Failed to install server dependencies"
+        return 1
     fi
+    
+    print_success "Server dependencies installed successfully"
     
     # Build TypeScript if needed
     if [[ -f "$SERVER_PATH/tsconfig.json" ]] || [[ -f "$SERVER_PATH/index.ts" ]]; then
