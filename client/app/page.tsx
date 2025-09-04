@@ -1,0 +1,103 @@
+import { getSession } from '@/lib/auth';
+import { getNodes, updateNode } from '@/lib/db-json';
+import { getGreeting } from '@/components/greeting';
+import NodeCard from '@/components/node-card';
+import { LogOut, Plus, Settings, User } from 'lucide-react';
+import Link from 'next/link';
+import { checkNodeHealth } from '@/lib/api';
+
+async function updateNodeStatuses() {
+  const nodes = getNodes();
+  
+  for (const node of nodes) {
+    const isOnline = await checkNodeHealth(node.url);
+    updateNode(node.id, { 
+      status: isOnline ? 'online' : 'offline',
+      lastCheck: new Date().toISOString()
+    });
+  }
+  
+  return getNodes();
+}
+
+export default async function NodesPage() {
+  const session = await getSession();
+  if (!session) return null;
+  
+  const nodes = await updateNodeStatuses();
+  const greeting = getGreeting(session.firstName);
+
+  return (
+    <div className="min-h-screen">
+      <header className="border-b border-border">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <h1 className="text-2xl font-bold">{greeting}</h1>
+            <div className="flex items-center space-x-4">
+              <Link
+                href="/profile"
+                className="p-2 rounded-lg hover:bg-secondary transition-colors"
+                title="Profile"
+              >
+                <User className="w-5 h-5" />
+              </Link>
+              <Link
+                href="/settings"
+                className="p-2 rounded-lg hover:bg-secondary transition-colors"
+                title="Settings"
+              >
+                <Settings className="w-5 h-5" />
+              </Link>
+              <form action="/api/auth/logout" method="POST">
+                <button
+                  type="submit"
+                  className="p-2 rounded-lg hover:bg-secondary transition-colors"
+                  title="Logout"
+                >
+                  <LogOut className="w-5 h-5" />
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </header>
+      
+      <main className="container mx-auto px-4 py-8">
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h2 className="text-xl font-semibold">Your Nodes</h2>
+            <p className="text-muted-foreground">
+              {nodes.length} node{nodes.length !== 1 ? 's' : ''} configured
+            </p>
+          </div>
+          <Link
+            href="/settings"
+            className="flex items-center space-x-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Manage Nodes</span>
+          </Link>
+        </div>
+        
+        {nodes.length === 0 ? (
+          <div className="text-center py-12">
+            <p className="text-muted-foreground mb-4">No nodes configured yet</p>
+            <Link
+              href="/settings"
+              className="inline-flex items-center space-x-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Your First Node</span>
+            </Link>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {nodes.map((node) => (
+              <NodeCard key={node.id} node={node} />
+            ))}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}

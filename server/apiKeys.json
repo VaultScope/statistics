@@ -1,0 +1,15 @@
+[
+    {
+        "uuid": "287c023d-b65c-4609-9edf-dd587b3d5e56",
+        "name": "Admin Key",
+        "key": "5ZSVLkmZ8yB5nosY03Zux1vq4Vf9nc98tttMZi3iVU1Bc",
+        "permissions": {
+            "viewStats": true,
+            "createApiKey": true,
+            "deleteApiKey": true,
+            "viewApiKeys": true,
+            "usePowerCommands": true
+        },
+        "createdAt": "2025-09-02T20:50:54.517Z"
+    }
+]

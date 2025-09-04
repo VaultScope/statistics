@@ -1,0 +1,88 @@
+{
+  "logs": [
+    {
+      "id": "4e6bd2ae-f9c8-4d2c-8e4a-02aee74f396e",
+      "apiKeyId": "287c023d-b65c-4609-9edf-dd587b3d5e56",
+      "apiKeyName": "Admin Key",
+      "endpoint": "/api/logs",
+      "method": "DELETE",
+      "statusCode": 200,
+      "ipAddress": "::1",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+      "timestamp": "2025-09-04T15:34:33.174Z",
+      "responseTime": 1
+    },
+    {
+      "id": "42f4b806-9e5f-4be8-a918-446786815dbb",
+      "apiKeyId": "287c023d-b65c-4609-9edf-dd587b3d5e56",
+      "apiKeyName": "Admin Key",
+      "endpoint": "/api/logs",
+      "method": "GET",
+      "statusCode": 200,
+      "ipAddress": "::1",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+      "timestamp": "2025-09-04T15:34:33.203Z",
+      "responseTime": 1
+    },
+    {
+      "id": "63eeea04-15b6-4e37-9ba7-d48bd75b3e6d",
+      "apiKeyId": "287c023d-b65c-4609-9edf-dd587b3d5e56",
+      "apiKeyName": "Admin Key",
+      "endpoint": "/api/logs/stats/287c023d-b65c-4609-9edf-dd587b3d5e56",
+      "method": "GET",
+      "statusCode": 200,
+      "ipAddress": "::1",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+      "timestamp": "2025-09-04T15:34:33.206Z",
+      "responseTime": 1
+    },
+    {
+      "id": "949d0e42-d0dd-4240-85de-479b49eeffc6",
+      "apiKeyId": "287c023d-b65c-4609-9edf-dd587b3d5e56",
+      "apiKeyName": "Admin Key",
+      "endpoint": "/api/keys",
+      "method": "GET",
+      "statusCode": 304,
+      "ipAddress": "::1",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+      "timestamp": "2025-09-04T15:34:35.375Z",
+      "responseTime": 2
+    },
+    {
+      "id": "682678f2-f253-4cff-b724-9339d6ea90fc",
+      "apiKeyId": "287c023d-b65c-4609-9edf-dd587b3d5e56",
+      "apiKeyName": "Admin Key",
+      "endpoint": "/api/logs/stats/287c023d-b65c-4609-9edf-dd587b3d5e56",
+      "method": "GET",
+      "statusCode": 200,
+      "ipAddress": "::1",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+      "timestamp": "2025-09-04T15:34:35.381Z",
+      "responseTime": 1
+    },
+    {
+      "id": "9d940b6a-e7ca-4860-80fd-86bb724e32ed",
+      "apiKeyId": "287c023d-b65c-4609-9edf-dd587b3d5e56",
+      "apiKeyName": "Admin Key",
+      "endpoint": "/api/keys",
+      "method": "GET",
+      "statusCode": 304,
+      "ipAddress": "::1",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+      "timestamp": "2025-09-04T15:34:35.390Z",
+      "responseTime": 1
+    },
+    {
+      "id": "36abbd45-d494-4c1b-b505-e54b124b20ac",
+      "apiKeyId": "287c023d-b65c-4609-9edf-dd587b3d5e56",
+      "apiKeyName": "Admin Key",
+      "endpoint": "/api/logs/stats/287c023d-b65c-4609-9edf-dd587b3d5e56",
+      "method": "GET",
+      "statusCode": 200,
+      "ipAddress": "::1",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+      "timestamp": "2025-09-04T15:34:35.393Z",
+      "responseTime": 1
+    }
+  ]
+}

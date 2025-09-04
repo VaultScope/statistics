@@ -1,0 +1,40 @@
+{
+  "compilerOptions": {
+    /* Base Options */
+    "target": "ES2022",
+    "module": "CommonJS",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    
+    /* Module Resolution */
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@server/*": ["server/*"],
+      "@client/*": ["client/*"]
+    },
+    
+    /* Advanced Options */
+    "sourceMap": true,
+    "declaration": true,
+    "removeComments": false,
+    "allowJs": true,
+    "checkJs": false,
+    
+    /* Output Options */
+    "outDir": "./dist",
+    "rootDir": "."
+  },
+  "include": [
+    "server/**/*",
+    "client/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
+}

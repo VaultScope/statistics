@@ -1,0 +1,55 @@
+{
+  "name": "@vaultscope/statistics-server",
+  "version": "1.0.0",
+  "description": "VaultScope Statistics monitoring server - Real-time system monitoring API",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "nodemon --watch '*.ts' --exec 'ts-node' index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "apikey": "ts-node cli/apikey.ts",
+    "speed": "ts-node __tests__/speedtest.ts",
+    "sysinfo": "ts-node __tests__/sysinfo.ts",
+    "lint": "eslint . --ext .ts,.tsx",
+    "clean": "rm -rf dist node_modules"
+  },
+  "keywords": [
+    "monitoring",
+    "server",
+    "api",
+    "system",
+    "statistics",
+    "metrics",
+    "realtime"
+  ],
+  "author": "VaultScope",
+  "license": "MIT",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cap": "^0.2.1",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.1.5",
+    "jose": "^5.2.0",
+    "ps-list": "^8.1.1",
+    "systeminformation": "^5.21.20",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.11.0",
+    "@types/uuid": "^9.0.7",
+    "@typescript-eslint/eslint-plugin": "^6.18.1",
+    "@typescript-eslint/parser": "^6.18.1",
+    "eslint": "^8.56.0",
+    "nodemon": "^3.0.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
