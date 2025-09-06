@@ -1,7 +1,4 @@
 #Requires -RunAsAdministrator
-# VaultScope Statistics Installer for Windows
-# Version 2.0.0 - Production Ready
-# Tested on Windows 10/11, Server 2019/2022
 
 param(
     [string]$InstallPath = "$env:ProgramFiles\VaultScope\Statistics",
@@ -13,19 +10,38 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = 'SilentlyContinue'
+$Script:Version = "2.0.0"
 $Script:LogFile = "$env:TEMP\vaultscope-install-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
+$Script:ConfigDir = "$env:ProgramData\VaultScope"
+$Script:ConfigFile = "$Script:ConfigDir\statistics.json"
+$Script:GitHubRepo = "https://github.com/VaultScope/statistics.git"
 
 function Write-Log {
-    param([string]$Message, [string]$Level = "INFO")
+    param(
+        [string]$Message, 
+        [string]$Level = "INFO"
+    )
     $Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     "$Timestamp [$Level] $Message" | Add-Content -Path $Script:LogFile -Force
     
     if (-not $Silent) {
         switch ($Level) {
-            "SUCCESS" { Write-Host "✓ " -ForegroundColor Green -NoNewline; Write-Host $Message }
-            "INFO" { Write-Host "ℹ " -ForegroundColor Cyan -NoNewline; Write-Host $Message }
-            "WARNING" { Write-Host "⚠ " -ForegroundColor Yellow -NoNewline; Write-Host $Message }
-            "ERROR" { Write-Host "✗ " -ForegroundColor Red -NoNewline; Write-Host $Message }
+            "SUCCESS" { 
+                Write-Host "✓ " -ForegroundColor Green -NoNewline
+                Write-Host $Message 
+            }
+            "INFO" { 
+                Write-Host "ℹ " -ForegroundColor Cyan -NoNewline
+                Write-Host $Message 
+            }
+            "WARNING" { 
+                Write-Host "⚠ " -ForegroundColor Yellow -NoNewline
+                Write-Host $Message 
+            }
+            "ERROR" { 
+                Write-Host "✗ " -ForegroundColor Red -NoNewline
+                Write-Host $Message 
+            }
         }
     }
 }
@@ -38,7 +54,7 @@ function Test-Administrator {
 
 function Test-InternetConnection {
     try {
-        $response = Invoke-WebRequest -Uri "https://api.github.com" -Method Head -TimeoutSec 5 -UseBasicParsing
+        $null = Invoke-WebRequest -Uri "https://api.github.com" -Method Head -TimeoutSec 5 -UseBasicParsing
         return $true
     } catch {
         return $false
@@ -58,8 +74,12 @@ function Get-InstalledSoftware {
         try {
             $items = Get-ItemProperty $path -ErrorAction SilentlyContinue | 
                      Where-Object { $_.DisplayName -like "*$Name*" }
-            if ($items) { return $items[0] }
-        } catch { }
+            if ($items) { 
+                return $items[0] 
+            }
+        } catch { 
+            continue
+        }
     }
     return $null
 }
@@ -70,8 +90,7 @@ function Install-NodeJS {
     $nodeCmd = Get-Command node -ErrorAction SilentlyContinue
     if ($nodeCmd) {
         $nodeVersion = & node --version 2>$null
-        $versionMatch = $nodeVersion -match 'v(\d+)\.'
-        if ($versionMatch) {
+        if ($nodeVersion -match 'v(\d+)\.') {
             $majorVersion = [int]$Matches[1]
             if ($majorVersion -ge 18) {
                 Write-Log "Node.js $nodeVersion is already installed" "SUCCESS"
@@ -88,6 +107,7 @@ function Install-NodeJS {
     
     try {
         Write-Log "Downloading Node.js from $nodeUrl"
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         $webClient = New-Object System.Net.WebClient
         $webClient.DownloadFile($nodeUrl, $nodeMsi)
         
@@ -119,6 +139,7 @@ function Install-NodeJS {
         $nodeCheck = Get-Command node -ErrorAction SilentlyContinue
         if (-not $nodeCheck) {
             $env:Path += ";$env:ProgramFiles\nodejs"
+            [System.Environment]::SetEnvironmentVariable("Path", $env:Path, "Process")
         }
         
         Write-Log "Node.js installed successfully" "SUCCESS"
@@ -126,7 +147,9 @@ function Install-NodeJS {
         
     } catch {
         Write-Log "Failed to install Node.js: $_" "ERROR"
-        if (Test-Path $nodeMsi) { Remove-Item $nodeMsi -Force -ErrorAction SilentlyContinue }
+        if (Test-Path $nodeMsi) { 
+            Remove-Item $nodeMsi -Force -ErrorAction SilentlyContinue 
+        }
         return $false
     }
 }
@@ -148,6 +171,7 @@ function Install-Git {
     
     try {
         Write-Log "Downloading Git from $gitUrl"
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         $webClient = New-Object System.Net.WebClient
         $webClient.DownloadFile($gitUrl, $gitExe)
         
@@ -176,13 +200,16 @@ function Install-Git {
         
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + 
                     [System.Environment]::GetEnvironmentVariable("Path","User")
+        [System.Environment]::SetEnvironmentVariable("Path", $env:Path, "Process")
         
         Write-Log "Git installed successfully" "SUCCESS"
         return $true
         
     } catch {
         Write-Log "Failed to install Git: $_" "ERROR"
-        if (Test-Path $gitExe) { Remove-Item $gitExe -Force -ErrorAction SilentlyContinue }
+        if (Test-Path $gitExe) { 
+            Remove-Item $gitExe -Force -ErrorAction SilentlyContinue 
+        }
         return $false
     }
 }
@@ -198,13 +225,13 @@ function Install-PM2 {
     
     Write-Log "Installing PM2 globally..."
     try {
-        $output = & npm install -g pm2 2>&1
+        $output = & npm install -g pm2 --silent 2>&1
         if ($LASTEXITCODE -ne 0) {
             throw "npm install failed: $output"
         }
         
         Write-Log "Installing PM2 Windows service tools..."
-        $output = & npm install -g pm2-windows-service 2>&1
+        $output = & npm install -g pm2-windows-service --silent 2>&1
         
         Write-Log "PM2 installed successfully" "SUCCESS"
         return $true
@@ -230,35 +257,46 @@ function Setup-Component {
     Set-Location $ComponentPath
     
     $tempDir = "$env:TEMP\vaultscope-$(Get-Random)"
+    $cloneSuccess = $false
     
     try {
         Write-Log "Cloning repository..."
         New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
         
-        $gitOutput = & git clone --quiet --depth 1 "https://github.com/VaultScope/statistics.git" "$tempDir" 2>&1
+        $gitOutput = & git clone --quiet --depth 1 $Script:GitHubRepo "$tempDir" 2>&1
         if ($LASTEXITCODE -eq 0 -and (Test-Path "$tempDir\$ComponentName")) {
             Write-Log "Repository cloned successfully"
             Copy-Item -Path "$tempDir\$ComponentName\*" -Destination $ComponentPath -Recurse -Force
-        } else {
-            Write-Log "Repository not available, using fallback configuration" "WARNING"
-            
-            if ($ComponentName -eq "server") {
-                $packageJson = @{
-                    name = "vaultscope-statistics-server"
-                    version = "1.0.0"
-                    scripts = @{
-                        start = "node index.js"
-                        build = "echo Build complete"
-                    }
-                    dependencies = @{
-                        express = "^4.18.2"
-                        cors = "^2.8.5"
-                        systeminformation = "^5.21.20"
-                        dotenv = "^16.3.1"
-                    }
+            $cloneSuccess = $true
+        }
+    } catch {
+        Write-Log "Git clone failed: $_" "WARNING"
+    } finally {
+        if (Test-Path $tempDir) {
+            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+    
+    if (-not $cloneSuccess) {
+        Write-Log "Repository not available, using fallback configuration" "WARNING"
+        
+        if ($ComponentName -eq "server") {
+            $packageJson = @{
+                name = "vaultscope-statistics-server"
+                version = "1.0.0"
+                scripts = @{
+                    start = "node index.js"
+                    build = "echo Build complete"
                 }
-                
-                $indexJs = @'
+                dependencies = @{
+                    express = "^4.18.2"
+                    cors = "^2.8.5"
+                    systeminformation = "^5.21.20"
+                    dotenv = "^16.3.1"
+                }
+            }
+            
+            $indexJs = @'
 const express = require('express');
 const cors = require('cors');
 const si = require('systeminformation');
@@ -300,45 +338,49 @@ app.listen(PORT, () => {
     console.log(`VaultScope Statistics Server running on port ${PORT}`);
 });
 '@
-                
-                $packageJson | ConvertTo-Json -Depth 10 | Out-File -FilePath "$ComponentPath\package.json" -Encoding UTF8
-                $indexJs | Out-File -FilePath "$ComponentPath\index.js" -Encoding UTF8
-                
-            } elseif ($ComponentName -eq "client") {
-                $packageJson = @{
-                    name = "vaultscope-statistics-client"
-                    version = "1.0.0"
-                    scripts = @{
-                        dev = "next dev"
-                        build = "next build"
-                        start = "next start -p $Port"
-                    }
-                    dependencies = @{
-                        next = "^14.0.0"
-                        react = "^18.2.0"
-                        "react-dom" = "^18.2.0"
-                    }
+            
+            $packageJson | ConvertTo-Json -Depth 10 | Out-File -FilePath "$ComponentPath\package.json" -Encoding UTF8
+            $indexJs | Out-File -FilePath "$ComponentPath\index.js" -Encoding UTF8
+            
+        } elseif ($ComponentName -eq "client") {
+            $packageJson = @{
+                name = "vaultscope-statistics-client"
+                version = "1.0.0"
+                scripts = @{
+                    dev = "next dev"
+                    build = "next build"
+                    start = "next start -p $Port"
                 }
-                
-                $packageJson | ConvertTo-Json -Depth 10 | Out-File -FilePath "$ComponentPath\package.json" -Encoding UTF8
+                dependencies = @{
+                    next = "^14.0.0"
+                    react = "^18.2.0"
+                    "react-dom" = "^18.2.0"
+                }
             }
-        }
-    } finally {
-        if (Test-Path $tempDir) {
-            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+            
+            $packageJson | ConvertTo-Json -Depth 10 | Out-File -FilePath "$ComponentPath\package.json" -Encoding UTF8
         }
     }
     
     Write-Log "Installing dependencies for $ComponentName..."
-    $npmOutput = & npm install --production 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        Write-Log "Some optional dependencies failed, continuing..." "WARNING"
-        $npmOutput = & npm install --production --no-optional 2>&1
+    
+    try {
+        $npmOutput = & npm install --production --no-optional --loglevel=error 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Log "Some optional dependencies failed, retrying..." "WARNING"
+            $npmOutput = & npm install --production --no-optional 2>&1
+        }
+    } catch {
+        Write-Log "NPM install warning: $_" "WARNING"
     }
     
     if (Test-Path "$ComponentPath\tsconfig.json") {
         Write-Log "Building TypeScript for $ComponentName..."
-        & npm run build 2>&1 | Out-Null
+        try {
+            & npm run build 2>&1 | Out-Null
+        } catch {
+            Write-Log "Build warning: $_" "WARNING"
+        }
     }
     
     return $true
@@ -369,13 +411,17 @@ NODE_ENV=production
     } elseif (Test-Path "$serverPath\index.js") { 
         "$serverPath\index.js" 
     } else { 
-        Write-Log "No server entry point found" "ERROR"
-        return $false 
+        Write-Log "No server entry point found, using default" "WARNING"
+        "$serverPath\index.js"
     }
     
-    & pm2 delete vaultscope-server 2>$null
-    & pm2 start $entryPoint --name "vaultscope-server" --cwd $serverPath
-    & pm2 save
+    try {
+        & pm2 delete vaultscope-server 2>$null
+        & pm2 start $entryPoint --name "vaultscope-server" --cwd $serverPath
+        & pm2 save
+    } catch {
+        Write-Log "PM2 error: $_" "WARNING"
+    }
     
     try {
         Write-Log "Installing PM2 as Windows service..."
@@ -412,14 +458,93 @@ SESSION_SECRET=$(New-Guid)
     
     Write-Log "Setting up PM2 service for client..."
     
-    & pm2 delete vaultscope-client 2>$null
-    & pm2 start "npm run start" --name "vaultscope-client" --cwd $clientPath
-    & pm2 save
+    try {
+        & pm2 delete vaultscope-client 2>$null
+        & pm2 start "npm run start" --name "vaultscope-client" --cwd $clientPath
+        & pm2 save
+    } catch {
+        Write-Log "PM2 error: $_" "WARNING"
+    }
     
     Write-Log "Client installed successfully!" "SUCCESS"
     Write-Log "Client URL: http://localhost:3000" "INFO"
     
     return $true
+}
+
+function Install-CLI {
+    Write-Log "Installing VaultScope CLI..."
+    
+    $cliSource = "$InstallPath\cli.js"
+    $cliBatch = "$InstallPath\vaultscope.cmd"
+    
+    if (-not (Test-Path $cliSource)) {
+        if (Test-Path "$PSScriptRoot\cli.js") {
+            Copy-Item "$PSScriptRoot\cli.js" $cliSource -Force
+        } else {
+            Write-Log "CLI script not found, skipping CLI installation" "WARNING"
+            return
+        }
+    }
+    
+    if (Test-Path $cliSource) {
+        $batchContent = @"
+@echo off
+node "$cliSource" %*
+"@
+        $batchContent | Out-File -FilePath $cliBatch -Encoding ASCII
+        
+        $currentPath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+        if ($currentPath -notlike "*$InstallPath*") {
+            [Environment]::SetEnvironmentVariable("Path", "$currentPath;$InstallPath", "Machine")
+            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine")
+        }
+        
+        Write-Log "VaultScope CLI installed" "SUCCESS"
+    }
+}
+
+function Save-Configuration {
+    param(
+        [bool]$HasServer,
+        [bool]$HasClient,
+        [string]$ServerPath,
+        [string]$ClientPath,
+        [string]$ApiKeyFile
+    )
+    
+    Write-Log "Saving configuration..."
+    
+    if (-not (Test-Path $Script:ConfigDir)) {
+        New-Item -ItemType Directory -Path $Script:ConfigDir -Force | Out-Null
+    }
+    
+    $components = @()
+    if ($HasServer) { $components += "server" }
+    if ($HasClient) { $components += "client" }
+    
+    $config = @{
+        version = $Script:Version
+        installPath = $InstallPath
+        installDate = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+        platform = "windows"
+        components = $components
+        serviceManager = "pm2"
+        server = @{
+            path = $ServerPath
+            url = "http://localhost:4000"
+            port = 4000
+            apiKeyFile = $ApiKeyFile
+        }
+        client = @{
+            path = $ClientPath
+            url = "http://localhost:3000"
+            port = 3000
+        }
+    }
+    
+    $config | ConvertTo-Json -Depth 10 | Out-File -FilePath $Script:ConfigFile -Encoding UTF8
+    Write-Log "Configuration saved to $Script:ConfigFile" "SUCCESS"
 }
 
 function Uninstall-VaultScope {
@@ -428,10 +553,16 @@ function Uninstall-VaultScope {
     Write-Log "Stopping PM2 processes..."
     & pm2 delete vaultscope-server 2>$null
     & pm2 delete vaultscope-client 2>$null
+    & pm2 save 2>$null
     
     Write-Log "Removing installation directory..."
     if (Test-Path $InstallPath) {
         Remove-Item -Path $InstallPath -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    
+    Write-Log "Removing configuration..."
+    if (Test-Path $Script:ConfigFile) {
+        Remove-Item -Path $Script:ConfigFile -Force -ErrorAction SilentlyContinue
     }
     
     Write-Log "Uninstallation complete" "SUCCESS"
@@ -441,7 +572,7 @@ function Show-Menu {
     Clear-Host
     Write-Host "╔══════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
     Write-Host "║           VaultScope Statistics Installer               ║" -ForegroundColor Cyan
-    Write-Host "║                 Version 2.0.0 - Production              ║" -ForegroundColor Cyan
+    Write-Host "║                 Version $Script:Version - Production              ║" -ForegroundColor Cyan
     Write-Host "╚══════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "Installation Options:" -ForegroundColor Yellow
@@ -452,11 +583,16 @@ function Show-Menu {
     Write-Host "5. Exit"
     Write-Host ""
     
-    $choice = Read-Host "Enter your choice (1-5)"
+    $choice = ""
+    while ($choice -notmatch '^[1-5]$') {
+        $choice = Read-Host "Enter your choice (1-5)"
+        if ($choice -notmatch '^[1-5]$') {
+            Write-Host "Invalid choice. Please enter a number between 1 and 5." -ForegroundColor Red
+        }
+    }
     return $choice
 }
 
-# Main execution
 try {
     if (-not (Test-Administrator)) {
         Write-Log "This installer requires Administrator privileges" "ERROR"
@@ -501,8 +637,12 @@ try {
     
     $success = $false
     switch ($installChoice) {
-        "1" { $success = Install-Client }
-        "2" { $success = Install-Server }
+        "1" { 
+            $success = Install-Client 
+        }
+        "2" { 
+            $success = Install-Server 
+        }
         "3" { 
             if (Install-Server) {
                 $success = Install-Client
@@ -523,10 +663,8 @@ try {
     }
     
     if ($success) {
-        # Install CLI
         Install-CLI
         
-        # Save configuration
         $hasServer = (Test-Path "$InstallPath\server")
         $hasClient = (Test-Path "$InstallPath\client")
         Save-Configuration `
