@@ -3,7 +3,7 @@
 <div align="center">
   
   ![VaultScope Statistics](https://img.shields.io/badge/VaultScope-Statistics-blue?style=for-the-badge)
-  ![Version](https://img.shields.io/badge/version-1.0.0-green?style=for-the-badge)
+  ![Version](https://img.shields.io/badge/version-2.0.0-green?style=for-the-badge)
   ![License](https://img.shields.io/badge/license-MIT-purple?style=for-the-badge)
   
   **Enterprise-grade server monitoring and statistics platform**

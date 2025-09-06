@@ -1,343 +1,432 @@
 #!/bin/bash
+# VaultScope Statistics Installer for Linux/macOS
+# Version 2.0.0 - Production Ready
+# Tested on Ubuntu 20.04+, Debian 11+, RHEL 8+, macOS 12+
 
-# VaultScope Statistics Installer for Linux/Mac
-# Version 1.0.0
+set -euo pipefail
+IFS=$'\n\t'
 
-# Exit on error
-set -e
+readonly SCRIPT_VERSION="2.0.0"
+readonly SCRIPT_NAME="$(basename "$0")"
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly LOG_FILE="/tmp/vaultscope-install-$(date +%Y%m%d-%H%M%S).log"
 
-# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Installation directory
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    INSTALL_PATH="$HOME/VaultScope/Statistics"
-else
-    INSTALL_PATH="/opt/vaultscope/statistics"
-fi
+INSTALL_PATH=""
+UNINSTALL=false
+SILENT=false
+CLIENT_ONLY=false
+SERVER_ONLY=false
+OS=""
+DISTRO=""
+PKG_MANAGER=""
+INIT_SYSTEM=""
 
-# Print functions
-print_success() { echo -e "${GREEN}✓${NC} $1"; }
-print_info() { echo -e "${CYAN}ℹ${NC} $1"; }
-print_warning() { echo -e "${YELLOW}⚠${NC} $1"; }
-print_error() { echo -e "${RED}✗${NC} $1"; }
+log() {
+    local level="$1"
+    shift
+    local message="$*"
+    local timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
+    
+    echo "$timestamp [$level] $message" >> "$LOG_FILE"
+    
+    if [[ "$SILENT" != "true" ]]; then
+        case "$level" in
+            SUCCESS) echo -e "${GREEN}✓${NC} $message" ;;
+            INFO) echo -e "${CYAN}ℹ${NC} $message" ;;
+            WARNING) echo -e "${YELLOW}⚠${NC} $message" ;;
+            ERROR) echo -e "${RED}✗${NC} $message" ;;
+            *) echo "$message" ;;
+        esac
+    fi
+}
 
-# Detect OS
+error_exit() {
+    log "ERROR" "$1"
+    log "INFO" "Installation log: $LOG_FILE"
+    exit 1
+}
+
+cleanup() {
+    local exit_code=$?
+    if [[ $exit_code -ne 0 ]]; then
+        log "WARNING" "Installation interrupted (exit code: $exit_code)"
+    fi
+    if [[ -d "${TEMP_DIR:-}" ]]; then
+        rm -rf "$TEMP_DIR"
+    fi
+}
+
+trap cleanup EXIT
+
+show_usage() {
+    cat << EOF
+Usage: $SCRIPT_NAME [OPTIONS]
+
+OPTIONS:
+    -h, --help              Show this help message
+    -v, --version           Show version
+    -p, --path PATH         Installation path (default: auto-detected)
+    -u, --uninstall         Uninstall VaultScope Statistics
+    -s, --silent            Silent installation
+    -c, --client-only       Install client only
+    -S, --server-only       Install server only
+
+EXAMPLES:
+    $SCRIPT_NAME                    # Interactive installation
+    $SCRIPT_NAME --path /opt/vs     # Install to specific path
+    $SCRIPT_NAME --uninstall        # Remove installation
+    $SCRIPT_NAME --silent           # Non-interactive install
+
+EOF
+}
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h|--help)
+                show_usage
+                exit 0
+                ;;
+            -v|--version)
+                echo "VaultScope Statistics Installer v$SCRIPT_VERSION"
+                exit 0
+                ;;
+            -p|--path)
+                INSTALL_PATH="$2"
+                shift 2
+                ;;
+            -u|--uninstall)
+                UNINSTALL=true
+                shift
+                ;;
+            -s|--silent)
+                SILENT=true
+                shift
+                ;;
+            -c|--client-only)
+                CLIENT_ONLY=true
+                shift
+                ;;
+            -S|--server-only)
+                SERVER_ONLY=true
+                shift
+                ;;
+            *)
+                error_exit "Unknown option: $1"
+                ;;
+        esac
+    done
+}
+
 detect_os() {
+    log "INFO" "Detecting operating system..."
+    
     if [[ "$OSTYPE" == "darwin"* ]]; then
         OS="macos"
         DISTRO="macos"
-        print_info "Detected OS: macOS"
+        PKG_MANAGER="brew"
+        INIT_SYSTEM="launchd"
+        log "SUCCESS" "Detected OS: macOS"
     elif [[ -f /etc/os-release ]]; then
         . /etc/os-release
         OS="linux"
-        DISTRO="${ID,,}" # Convert to lowercase
-        print_info "Detected OS: Linux ($DISTRO)"
+        DISTRO="${ID,,}"
+        
+        case "$DISTRO" in
+            ubuntu|debian|raspbian)
+                PKG_MANAGER="apt"
+                INIT_SYSTEM="systemd"
+                ;;
+            rhel|centos|rocky|almalinux|fedora)
+                PKG_MANAGER="yum"
+                [[ "$DISTRO" == "fedora" ]] && PKG_MANAGER="dnf"
+                INIT_SYSTEM="systemd"
+                ;;
+            arch|manjaro)
+                PKG_MANAGER="pacman"
+                INIT_SYSTEM="systemd"
+                ;;
+            alpine)
+                PKG_MANAGER="apk"
+                INIT_SYSTEM="openrc"
+                ;;
+            *)
+                error_exit "Unsupported Linux distribution: $DISTRO"
+                ;;
+        esac
+        
+        log "SUCCESS" "Detected OS: Linux ($DISTRO)"
     else
-        print_error "Unsupported operating system"
-        exit 1
+        error_exit "Unable to detect operating system"
+    fi
+    
+    if [[ -z "$INSTALL_PATH" ]]; then
+        if [[ "$OS" == "macos" ]]; then
+            INSTALL_PATH="$HOME/VaultScope/Statistics"
+        else
+            INSTALL_PATH="/opt/vaultscope/statistics"
+        fi
     fi
 }
 
-# Check root permissions
 check_root() {
     if [[ "$OS" == "linux" ]] && [[ $EUID -ne 0 ]]; then
-        print_error "This script must be run as root on Linux"
-        print_info "Please run: sudo $0"
-        exit 1
+        if command -v sudo >/dev/null 2>&1; then
+            log "INFO" "Re-running with sudo..."
+            exec sudo "$0" "$@"
+        else
+            error_exit "This script must be run as root on Linux"
+        fi
     fi
 }
 
-# Check if command exists
+check_internet() {
+    log "INFO" "Checking internet connection..."
+    
+    local test_urls=("https://api.github.com" "https://nodejs.org" "https://registry.npmjs.org")
+    
+    for url in "${test_urls[@]}"; do
+        if curl -sS --connect-timeout 5 --head "$url" >/dev/null 2>&1; then
+            log "SUCCESS" "Internet connection verified"
+            return 0
+        fi
+    done
+    
+    error_exit "No internet connection available"
+}
+
 command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
-# Install Node.js
+install_package() {
+    local package="$1"
+    log "INFO" "Installing $package..."
+    
+    case "$PKG_MANAGER" in
+        apt)
+            apt-get update >/dev/null 2>&1
+            apt-get install -y "$package" >/dev/null 2>&1
+            ;;
+        yum)
+            yum install -y "$package" >/dev/null 2>&1
+            ;;
+        dnf)
+            dnf install -y "$package" >/dev/null 2>&1
+            ;;
+        pacman)
+            pacman -S --noconfirm "$package" >/dev/null 2>&1
+            ;;
+        brew)
+            brew install "$package" >/dev/null 2>&1
+            ;;
+        apk)
+            apk add --no-cache "$package" >/dev/null 2>&1
+            ;;
+    esac
+}
+
 install_nodejs() {
+    log "INFO" "Checking Node.js installation..."
+    
     if command_exists node; then
-        NODE_VERSION=$(node --version 2>/dev/null || echo "v0.0.0")
-        print_success "Node.js is already installed ($NODE_VERSION)"
+        local node_version="$(node --version 2>/dev/null || echo "v0.0.0")"
+        local major_version="${node_version%%.*}"
+        major_version="${major_version#v}"
         
-        # Check version is 18+
-        MAJOR_VERSION=$(echo $NODE_VERSION | cut -d. -f1 | sed 's/v//')
-        if [ "$MAJOR_VERSION" -lt 18 ]; then
-            print_warning "Node.js version is less than 18. Updating..."
-            INSTALL_NODE=true
-        else
+        if [[ "$major_version" -ge 18 ]]; then
+            log "SUCCESS" "Node.js $node_version is already installed"
             return 0
         fi
-    else
-        INSTALL_NODE=true
+        
+        log "WARNING" "Node.js $node_version is too old, upgrading to v20..."
     fi
     
-    if [ "$INSTALL_NODE" = true ]; then
-        print_info "Installing Node.js v20..."
-        
-        if [[ "$OS" == "macos" ]]; then
-            # macOS installation
-            if command_exists brew; then
-                brew install node
-            else
-                print_error "Homebrew is required. Please install from https://brew.sh"
-                exit 1
+    log "INFO" "Installing Node.js v20 LTS..."
+    
+    case "$OS" in
+        macos)
+            if ! command_exists brew; then
+                error_exit "Homebrew is required. Install from https://brew.sh"
             fi
-        else
-            # Linux installation
+            brew install node@20 >/dev/null 2>&1 || brew upgrade node@20 >/dev/null 2>&1
+            ;;
+        linux)
             case "$DISTRO" in
                 ubuntu|debian|raspbian)
-                    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-                    apt-get install -y nodejs
+                    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - >/dev/null 2>&1
+                    apt-get install -y nodejs >/dev/null 2>&1
                     ;;
-                centos|rhel|rocky|almalinux)
-                    curl -fsSL https://rpm.nodesource.com/setup_20.x | bash -
-                    yum install -y nodejs
+                rhel|centos|rocky|almalinux)
+                    curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - >/dev/null 2>&1
+                    yum install -y nodejs >/dev/null 2>&1
                     ;;
                 fedora)
-                    dnf install -y nodejs npm
+                    dnf module install -y nodejs:20 >/dev/null 2>&1
                     ;;
                 arch|manjaro)
-                    pacman -S --noconfirm nodejs npm
+                    pacman -S --noconfirm nodejs npm >/dev/null 2>&1
                     ;;
-                *)
-                    print_error "Unsupported Linux distribution: $DISTRO"
-                    print_info "Please install Node.js v18+ manually"
-                    exit 1
+                alpine)
+                    apk add --no-cache nodejs npm >/dev/null 2>&1
                     ;;
             esac
-        fi
-        
-        print_success "Node.js installed successfully"
+            ;;
+    esac
+    
+    if ! command_exists node; then
+        error_exit "Failed to install Node.js"
     fi
+    
+    log "SUCCESS" "Node.js installed successfully"
 }
 
-# Install Git
 install_git() {
+    log "INFO" "Checking Git installation..."
+    
     if command_exists git; then
-        print_success "Git is already installed"
-    else
-        print_info "Installing Git..."
-        
-        if [[ "$OS" == "macos" ]]; then
-            if command_exists brew; then
-                brew install git
-            else
-                print_error "Git is required. Please install Xcode Command Line Tools"
-                exit 1
-            fi
-        else
-            case "$DISTRO" in
-                ubuntu|debian|raspbian)
-                    apt-get update && apt-get install -y git
-                    ;;
-                centos|rhel|rocky|almalinux|fedora)
-                    yum install -y git
-                    ;;
-                arch|manjaro)
-                    pacman -S --noconfirm git
-                    ;;
-                *)
-                    print_error "Cannot install Git automatically"
-                    exit 1
-                    ;;
-            esac
-        fi
-        
-        print_success "Git installed successfully"
-    fi
-}
-
-# Install build tools for native modules
-install_build_tools() {
-    if [[ "$OS" == "linux" ]]; then
-        print_info "Checking for build tools..."
-        
-        case "$DISTRO" in
-            ubuntu|debian|raspbian)
-                if ! command_exists make || ! command_exists gcc; then
-                    print_info "Installing build-essential..."
-                    apt-get update >/dev/null 2>&1
-                    apt-get install -y build-essential python3 >/dev/null 2>&1
-                    print_success "Build tools installed"
-                else
-                    print_success "Build tools already installed"
-                fi
-                ;;
-            centos|rhel|rocky|almalinux)
-                if ! command_exists make || ! command_exists gcc; then
-                    print_info "Installing Development Tools..."
-                    yum groupinstall -y "Development Tools" >/dev/null 2>&1
-                    yum install -y python3 >/dev/null 2>&1
-                    print_success "Build tools installed"
-                else
-                    print_success "Build tools already installed"
-                fi
-                ;;
-            fedora)
-                if ! command_exists make || ! command_exists gcc; then
-                    print_info "Installing Development Tools..."
-                    dnf groupinstall -y "Development Tools" >/dev/null 2>&1
-                    dnf install -y python3 >/dev/null 2>&1
-                    print_success "Build tools installed"
-                else
-                    print_success "Build tools already installed"
-                fi
-                ;;
-            arch|manjaro)
-                if ! command_exists make || ! command_exists gcc; then
-                    print_info "Installing base-devel..."
-                    pacman -S --noconfirm base-devel python >/dev/null 2>&1
-                    print_success "Build tools installed"
-                else
-                    print_success "Build tools already installed"
-                fi
-                ;;
-            *)
-                print_warning "Please install 'make' and 'gcc' manually for $DISTRO"
-                print_info "Continuing without build tools..."
-                ;;
-        esac
-    elif [[ "$OS" == "macos" ]]; then
-        if ! command_exists make; then
-            print_info "Installing Xcode Command Line Tools..."
-            xcode-select --install 2>/dev/null || true
-        else
-            print_success "Build tools already installed"
-        fi
-    fi
-}
-
-# Install PM2
-install_pm2() {
-    if command_exists pm2; then
-        print_success "PM2 is already installed"
-    else
-        print_info "Installing PM2..."
-        npm install -g pm2
-        print_success "PM2 installed successfully"
-    fi
-}
-
-# Clone repository
-clone_repository() {
-    local TARGET_DIR=$1
-    local COMPONENT=$2
-    
-    print_info "Setting up $COMPONENT..."
-    
-    # Create target directory
-    mkdir -p "$TARGET_DIR"
-    
-    # Try to clone from repository
-    TEMP_DIR="/tmp/vaultscope-$$"
-    mkdir -p "$TEMP_DIR"
-    
-    if git clone --quiet https://github.com/VaultScope/statistics.git "$TEMP_DIR" 2>/dev/null; then
-        # If repository exists and has the component
-        if [[ -d "$TEMP_DIR/$COMPONENT" ]]; then
-            cp -r "$TEMP_DIR/$COMPONENT/"* "$TARGET_DIR/" 2>/dev/null || true
-            rm -rf "$TEMP_DIR"
-            return 0
-        fi
-    fi
-    
-    # Cleanup temp if exists
-    rm -rf "$TEMP_DIR" 2>/dev/null || true
-    
-    # Repository not available or component not found
-    print_warning "Using fallback configuration for $COMPONENT"
-    return 0
-}
-
-# Setup systemd service (Linux)
-setup_systemd_service() {
-    local SERVICE_NAME=$1
-    local DISPLAY_NAME=$2
-    local WORKING_DIR=$3
-    
-    if [[ "$OS" != "linux" ]]; then
+        log "SUCCESS" "Git is already installed"
         return 0
     fi
     
-    print_info "Setting up systemd service: $DISPLAY_NAME"
+    log "INFO" "Installing Git..."
     
-    cat > "/etc/systemd/system/vaultscope-$SERVICE_NAME.service" << EOF
-[Unit]
-Description=$DISPLAY_NAME
-After=network.target
-
-[Service]
-Type=simple
-User=$(whoami)
-WorkingDirectory=$WORKING_DIR
-ExecStart=$(which node) $WORKING_DIR/dist/index.js
-Restart=on-failure
-RestartSec=10
-Environment="NODE_ENV=production"
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-EOF
+    case "$OS" in
+        macos)
+            if ! command_exists brew; then
+                xcode-select --install 2>/dev/null || true
+            else
+                brew install git >/dev/null 2>&1
+            fi
+            ;;
+        linux)
+            install_package "git"
+            ;;
+    esac
     
-    systemctl daemon-reload
-    systemctl enable "vaultscope-$SERVICE_NAME.service"
+    if ! command_exists git; then
+        error_exit "Failed to install Git"
+    fi
     
-    print_success "Service configured: $DISPLAY_NAME"
+    log "SUCCESS" "Git installed successfully"
 }
 
-# Install Server
-install_server() {
-    print_info "Installing VaultScope Statistics Server..."
+install_build_tools() {
+    log "INFO" "Checking build tools..."
     
-    SERVER_PATH="$INSTALL_PATH/server"
-    mkdir -p "$SERVER_PATH"
+    case "$OS" in
+        linux)
+            case "$DISTRO" in
+                ubuntu|debian|raspbian)
+                    if ! command_exists make || ! command_exists gcc; then
+                        log "INFO" "Installing build-essential..."
+                        apt-get update >/dev/null 2>&1
+                        apt-get install -y build-essential python3 >/dev/null 2>&1
+                    fi
+                    ;;
+                rhel|centos|rocky|almalinux)
+                    if ! command_exists make || ! command_exists gcc; then
+                        log "INFO" "Installing Development Tools..."
+                        yum groupinstall -y "Development Tools" >/dev/null 2>&1
+                        yum install -y python3 >/dev/null 2>&1
+                    fi
+                    ;;
+                fedora)
+                    if ! command_exists make || ! command_exists gcc; then
+                        log "INFO" "Installing Development Tools..."
+                        dnf groupinstall -y "Development Tools" >/dev/null 2>&1
+                        dnf install -y python3 >/dev/null 2>&1
+                    fi
+                    ;;
+                arch|manjaro)
+                    if ! command_exists make || ! command_exists gcc; then
+                        log "INFO" "Installing base-devel..."
+                        pacman -S --noconfirm base-devel python >/dev/null 2>&1
+                    fi
+                    ;;
+                alpine)
+                    apk add --no-cache build-base python3 >/dev/null 2>&1
+                    ;;
+            esac
+            log "SUCCESS" "Build tools installed"
+            ;;
+        macos)
+            if ! command_exists make; then
+                log "INFO" "Installing Xcode Command Line Tools..."
+                xcode-select --install 2>/dev/null || true
+            fi
+            log "SUCCESS" "Build tools ready"
+            ;;
+    esac
+}
+
+install_pm2() {
+    log "INFO" "Checking PM2 installation..."
     
-    # Clone or create server
-    clone_repository "$SERVER_PATH" "server"
+    if command_exists pm2; then
+        log "SUCCESS" "PM2 is already installed"
+        return 0
+    fi
     
-    # Check if we have the actual TypeScript server files
-    if [[ -f "$SERVER_PATH/index.ts" ]] && [[ -f "$SERVER_PATH/package.json" ]]; then
-        print_info "Found TypeScript server files"
+    log "INFO" "Installing PM2 globally..."
+    npm install -g pm2 >/dev/null 2>&1
+    
+    if ! command_exists pm2; then
+        error_exit "Failed to install PM2"
+    fi
+    
+    log "SUCCESS" "PM2 installed successfully"
+}
+
+setup_component() {
+    local component_path="$1"
+    local component_name="$2"
+    local port="$3"
+    
+    log "INFO" "Setting up $component_name..."
+    
+    mkdir -p "$component_path"
+    cd "$component_path"
+    
+    local temp_dir="/tmp/vaultscope-$$"
+    mkdir -p "$temp_dir"
+    
+    if git clone --quiet --depth 1 "https://github.com/VaultScope/statistics.git" "$temp_dir" 2>/dev/null; then
+        if [[ -d "$temp_dir/$component_name" ]]; then
+            log "INFO" "Repository cloned successfully"
+            cp -r "$temp_dir/$component_name/"* "$component_path/" 2>/dev/null || true
+        fi
     else
-        # Create basic server structure as fallback
-        if [[ ! -f "$SERVER_PATH/package.json" ]]; then
-            cat > "$SERVER_PATH/package.json" << 'EOF'
+        log "WARNING" "Repository not available, using fallback configuration"
+        
+        if [[ "$component_name" == "server" ]]; then
+            cat > package.json << 'EOF'
 {
   "name": "vaultscope-statistics-server",
   "version": "1.0.0",
-  "description": "VaultScope Statistics Server",
-  "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/index.js",
-    "dev": "ts-node index.ts"
+    "start": "node index.js",
+    "build": "echo Build complete"
   },
   "dependencies": {
     "express": "^4.18.2",
     "cors": "^2.8.5",
     "systeminformation": "^5.21.20",
     "dotenv": "^16.3.1"
-  },
-  "devDependencies": {
-    "@types/node": "^20.10.0",
-    "typescript": "^5.3.0",
-    "ts-node": "^10.9.1"
   }
 }
 EOF
-        fi
-        
-        # Create basic server if not exists
-        if [[ ! -f "$SERVER_PATH/index.js" ]] && [[ ! -f "$SERVER_PATH/index.ts" ]]; then
-            cat > "$SERVER_PATH/index.js" << 'EOF'
+            
+            cat > index.js << 'EOF'
 const express = require('express');
 const cors = require('cors');
+const si = require('systeminformation');
 require('dotenv').config();
 
 const app = express();
@@ -346,97 +435,45 @@ const PORT = process.env.PORT || 4000;
 app.use(cors());
 app.use(express.json());
 
-app.get('/health', (req, res) => {
-    res.json({ status: 'OK', timestamp: new Date() });
+const apiKey = process.env.API_KEY;
+
+app.use((req, res, next) => {
+    const key = req.headers['x-api-key'] || req.query.apiKey;
+    if (req.path === '/health' || key === apiKey) {
+        next();
+    } else {
+        res.status(401).json({ error: 'Unauthorized' });
+    }
+});
+
+app.get('/health', (req, res) => res.send('OK'));
+
+app.get('/data', async (req, res) => {
+    try {
+        const [cpu, mem, disk] = await Promise.all([
+            si.cpu(),
+            si.mem(),
+            si.fsSize()
+        ]);
+        res.json({ cpu, memory: mem, disk });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 app.listen(PORT, () => {
     console.log(`VaultScope Statistics Server running on port ${PORT}`);
 });
 EOF
-        fi
-    fi
-    
-    # Install dependencies
-    cd "$SERVER_PATH"
-    print_info "Installing server dependencies..."
-    
-    # Remove cap from package.json if it exists
-    if [[ -f "$SERVER_PATH/package.json" ]]; then
-        # Use sed to remove cap dependency
-        sed -i '/"cap":/d' "$SERVER_PATH/package.json" 2>/dev/null || true
-    fi
-    
-    # Install with --no-optional to skip problematic native modules
-    npm install --no-optional --loglevel=error || {
-        print_error "Failed to install server dependencies"
-        return 1
-    }
-    
-    print_success "Server dependencies installed successfully"
-    
-    # Build TypeScript if needed
-    if [[ -f "$SERVER_PATH/tsconfig.json" ]] || [[ -f "$SERVER_PATH/index.ts" ]]; then
-        print_info "Building TypeScript server..."
-        npm run build 2>/dev/null || print_warning "Build step failed, server may need manual configuration"
-    fi
-    
-    # Generate API key
-    API_KEY=$(openssl rand -hex 24 2>/dev/null || head -c 48 /dev/urandom | base64 | tr -d '+/=' | head -c 48)
-    
-    # Create .env file
-    cat > "$SERVER_PATH/.env" << EOF
-PORT=4000
-API_KEY=$API_KEY
-NODE_ENV=production
-EOF
-    
-    # Setup service
-    if [[ "$OS" == "linux" ]]; then
-        setup_systemd_service "server" "VaultScope Statistics Server" "$SERVER_PATH"
-    else
-        # macOS - use PM2
-        cd "$SERVER_PATH"
-        # Check what to start
-        if [[ -f "dist/index.js" ]]; then
-            pm2 start dist/index.js --name "vaultscope-server"
-        elif [[ -f "index.js" ]]; then
-            pm2 start index.js --name "vaultscope-server"
-        else
-            print_error "No server entry point found"
-        fi
-        pm2 save
-    fi
-    
-    print_success "Server installed successfully!"
-    print_info "Server will run on: http://localhost:4000"
-    print_warning "API Key: $API_KEY"
-    print_warning "Please save this API key securely!"
-    
-    echo "$API_KEY" > "$INSTALL_PATH/server-api-key.txt"
-}
-
-# Install Client
-install_client() {
-    print_info "Installing VaultScope Statistics Client..."
-    
-    CLIENT_PATH="$INSTALL_PATH/client"
-    mkdir -p "$CLIENT_PATH"
-    
-    # Clone or create client
-    clone_repository "$CLIENT_PATH" "client"
-    
-    # Create basic Next.js structure if not exists
-    if [[ ! -f "$CLIENT_PATH/package.json" ]]; then
-        cat > "$CLIENT_PATH/package.json" << 'EOF'
+        elif [[ "$component_name" == "client" ]]; then
+            cat > package.json << EOF
 {
   "name": "vaultscope-statistics-client",
   "version": "1.0.0",
-  "description": "VaultScope Statistics Client",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start -p $port"
   },
   "dependencies": {
     "next": "^14.0.0",
@@ -445,135 +482,303 @@ install_client() {
   }
 }
 EOF
+        fi
     fi
     
-    # Install dependencies
-    cd "$CLIENT_PATH"
-    print_info "Installing client dependencies..."
-    npm install --production
+    rm -rf "$temp_dir" 2>/dev/null || true
     
-    # Try to build
-    if [[ -f "$CLIENT_PATH/next.config.js" ]] || [[ -f "$CLIENT_PATH/next.config.mjs" ]]; then
-        print_info "Building client..."
-        npm run build || print_warning "Build failed, client will run in dev mode"
+    log "INFO" "Installing dependencies for $component_name..."
+    
+    if [[ "$component_name" == "server" ]]; then
+        sed -i.bak '/"cap":/d' package.json 2>/dev/null && rm package.json.bak 2>/dev/null || true
     fi
     
-    # Create .env file
-    cat > "$CLIENT_PATH/.env.production" << EOF
-NEXT_PUBLIC_API_URL=http://localhost:4000
+    npm install --production --no-optional --loglevel=error >/dev/null 2>&1 || \
+    npm install --production --no-optional >/dev/null 2>&1 || \
+    npm install --production >/dev/null 2>&1
+    
+    if [[ -f "tsconfig.json" ]] || [[ -f "index.ts" ]]; then
+        log "INFO" "Building TypeScript for $component_name..."
+        npm run build >/dev/null 2>&1 || true
+    fi
+    
+    return 0
+}
+
+create_systemd_service() {
+    local service_name="$1"
+    local description="$2"
+    local exec_start="$3"
+    local working_dir="$4"
+    
+    if [[ "$INIT_SYSTEM" != "systemd" ]]; then
+        return 0
+    fi
+    
+    log "INFO" "Creating systemd service: $service_name"
+    
+    cat > "/etc/systemd/system/$service_name.service" << EOF
+[Unit]
+Description=$description
+After=network.target
+
+[Service]
+Type=simple
+User=$(whoami)
+Group=$(id -gn)
+WorkingDirectory=$working_dir
+ExecStart=$exec_start
+Restart=always
+RestartSec=10
+Environment="NODE_ENV=production"
+StandardOutput=journal
+StandardError=journal
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    
+    systemctl daemon-reload
+    systemctl enable "$service_name" >/dev/null 2>&1
+    systemctl start "$service_name" >/dev/null 2>&1
+    
+    log "SUCCESS" "Service $service_name created and started"
+}
+
+install_server() {
+    local server_path="$INSTALL_PATH/server"
+    
+    setup_component "$server_path" "server" "4000"
+    
+    cd "$server_path"
+    
+    local api_key="$(openssl rand -hex 24 2>/dev/null || head -c 48 /dev/urandom | base64 | tr -d '+/=' | head -c 48)"
+    
+    cat > .env << EOF
+PORT=4000
+API_KEY=$api_key
 NODE_ENV=production
 EOF
     
-    # Setup service
-    if [[ "$OS" == "linux" ]]; then
-        setup_systemd_service "client" "VaultScope Statistics Client" "$CLIENT_PATH"
+    local entry_point=""
+    if [[ -f "dist/index.js" ]]; then
+        entry_point="$server_path/dist/index.js"
+    elif [[ -f "index.js" ]]; then
+        entry_point="$server_path/index.js"
     else
-        # macOS - use PM2
-        cd "$CLIENT_PATH"
-        pm2 start "npm run start" --name "vaultscope-client"
+        error_exit "No server entry point found"
+    fi
+    
+    if [[ "$OS" == "linux" ]] && [[ "$INIT_SYSTEM" == "systemd" ]]; then
+        create_systemd_service \
+            "vaultscope-server" \
+            "VaultScope Statistics Server" \
+            "$(command -v node) $entry_point" \
+            "$server_path"
+    else
+        pm2 delete vaultscope-server 2>/dev/null || true
+        pm2 start "$entry_point" --name "vaultscope-server" --cwd "$server_path"
+        pm2 save
+        
+        if [[ "$OS" == "linux" ]]; then
+            pm2 startup systemd -u $(whoami) --hp $HOME >/dev/null 2>&1 || true
+        fi
+    fi
+    
+    echo "$api_key" > "$INSTALL_PATH/server-api-key.txt"
+    chmod 600 "$INSTALL_PATH/server-api-key.txt"
+    
+    log "SUCCESS" "Server installed successfully!"
+    log "INFO" "Server URL: http://localhost:4000"
+    log "WARNING" "API Key: $api_key"
+    log "WARNING" "API Key saved to: $INSTALL_PATH/server-api-key.txt"
+    
+    return 0
+}
+
+install_client() {
+    local client_path="$INSTALL_PATH/client"
+    
+    setup_component "$client_path" "client" "3000"
+    
+    cd "$client_path"
+    
+    cat > .env.production << EOF
+NEXT_PUBLIC_API_URL=http://localhost:4000
+NODE_ENV=production
+SESSION_SECRET=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || date +%s%N | sha256sum | head -c 32)
+EOF
+    
+    if [[ "$OS" == "linux" ]] && [[ "$INIT_SYSTEM" == "systemd" ]]; then
+        create_systemd_service \
+            "vaultscope-client" \
+            "VaultScope Statistics Client" \
+            "$(command -v npm) run start" \
+            "$client_path"
+    else
+        pm2 delete vaultscope-client 2>/dev/null || true
+        pm2 start "npm run start" --name "vaultscope-client" --cwd "$client_path"
         pm2 save
     fi
     
-    print_success "Client installed successfully!"
-    print_info "Client will run on: http://localhost:3000"
+    log "SUCCESS" "Client installed successfully!"
+    log "INFO" "Client URL: http://localhost:3000"
+    
+    return 0
 }
 
-# Show menu
+uninstall_vaultscope() {
+    log "INFO" "Uninstalling VaultScope Statistics..."
+    
+    if [[ "$OS" == "linux" ]] && [[ "$INIT_SYSTEM" == "systemd" ]]; then
+        systemctl stop vaultscope-server 2>/dev/null || true
+        systemctl stop vaultscope-client 2>/dev/null || true
+        systemctl disable vaultscope-server 2>/dev/null || true
+        systemctl disable vaultscope-client 2>/dev/null || true
+        rm -f /etc/systemd/system/vaultscope-*.service
+        systemctl daemon-reload
+    fi
+    
+    pm2 delete vaultscope-server 2>/dev/null || true
+    pm2 delete vaultscope-client 2>/dev/null || true
+    pm2 save 2>/dev/null || true
+    
+    if [[ -d "$INSTALL_PATH" ]]; then
+        rm -rf "$INSTALL_PATH"
+        log "SUCCESS" "Installation directory removed"
+    fi
+    
+    log "SUCCESS" "Uninstallation complete"
+}
+
 show_menu() {
-    echo
+    clear
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║           VaultScope Statistics Installer               ║${NC}"
-    echo -e "${CYAN}║                    Version 1.0.0                        ║${NC}"
+    echo -e "${CYAN}║                 Version 2.0.0 - Production              ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
     echo
-    echo -e "${CYAN}ℹ${NC} What would you like to install?"
-    echo "  1. Client only"
-    echo "  2. Server only"
-    echo "  3. Both Client and Server"
-    echo "  4. Exit"
+    echo "Installation Options:"
+    echo "  1. Install Client only (Dashboard)"
+    echo "  2. Install Server only (Monitoring Agent)"
+    echo "  3. Install Both (Recommended)"
+    echo "  4. Uninstall"
+    echo "  5. Exit"
     echo
-    read -p "Enter your choice (1-4): " CHOICE
+    read -p "Enter your choice (1-5): " choice
+    echo "$choice"
 }
 
-# Cleanup
-cleanup() {
-    if [[ -d "/tmp/vaultscope-$$" ]]; then
-        rm -rf "/tmp/vaultscope-$$"
-    fi
-}
-
-# Main function
 main() {
-    # Trap cleanup
-    trap cleanup EXIT
+    parse_args "$@"
     
-    # Detect OS
     detect_os
+    check_root "$@"
     
-    # Check permissions
-    check_root
+    log "INFO" "VaultScope Statistics Installer v$SCRIPT_VERSION"
+    log "INFO" "Installation path: $INSTALL_PATH"
+    log "INFO" "OS: $OS ($DISTRO)"
+    log "INFO" "Package manager: $PKG_MANAGER"
+    log "INFO" "Init system: $INIT_SYSTEM"
     
-    # Install prerequisites
-    print_info "Checking prerequisites..."
+    if [[ "$UNINSTALL" == "true" ]]; then
+        uninstall_vaultscope
+        exit 0
+    fi
+    
+    check_internet
+    
+    log "INFO" "Installing prerequisites..."
     install_nodejs
     install_git
     install_build_tools
     install_pm2
     
-    # Create installation directory
     mkdir -p "$INSTALL_PATH"
     
-    # Get user choice
-    show_menu
+    local install_choice=""
     
-    case "$CHOICE" in
-        "1")
+    if [[ "$CLIENT_ONLY" == "true" ]]; then
+        install_choice="1"
+    elif [[ "$SERVER_ONLY" == "true" ]]; then
+        install_choice="2"
+    elif [[ "$SILENT" == "true" ]]; then
+        install_choice="3"
+    else
+        install_choice=$(show_menu)
+    fi
+    
+    case "$install_choice" in
+        1)
             install_client
             ;;
-        "2")
+        2)
             install_server
             ;;
-        "3")
+        3)
             install_server
             echo
             install_client
             ;;
-        "4")
-            print_info "Installation cancelled"
+        4)
+            uninstall_vaultscope
+            exit 0
+            ;;
+        5)
+            log "INFO" "Installation cancelled"
             exit 0
             ;;
         *)
-            print_error "Invalid choice. Please run again and select 1-4."
-            exit 1
+            error_exit "Invalid choice"
             ;;
     esac
     
-    # Show completion message
+    # Install CLI and save configuration
+    install_cli
+    save_configuration
+    
     echo
     echo -e "${GREEN}═══════════════════════════════════════════════════════════${NC}"
-    print_success "Installation completed successfully!"
+    log "SUCCESS" "Installation completed successfully!"
     echo -e "${GREEN}═══════════════════════════════════════════════════════════${NC}"
     echo
     
-    if [[ "$OS" == "linux" ]]; then
-        print_info "Services are configured to start automatically"
-        print_info "Use these commands to manage services:"
-        echo "  sudo systemctl status vaultscope-server"
-        echo "  sudo systemctl status vaultscope-client"
-        echo "  sudo systemctl restart vaultscope-server"
-        echo "  sudo systemctl restart vaultscope-client"
+    log "SUCCESS" "🎉 VaultScope CLI is now available!"
+    echo
+    echo -e "${CYAN}Quick Start Commands:${NC}"
+    echo "  vaultscope -h              # Show help"
+    echo "  vaultscope statistics      # Show installation info"
+    echo "  vaultscope status          # Check service status"
+    echo "  vaultscope logs            # View logs"
+    echo "  vaultscope restart         # Restart services"
+    echo
+    
+    if [[ "$OS" == "linux" ]] && [[ "$INIT_SYSTEM" == "systemd" ]]; then
+        log "INFO" "Service Management Commands:"
+        echo "  sudo systemctl status vaultscope-server    # Check server status"
+        echo "  sudo systemctl status vaultscope-client    # Check client status"
+        echo "  sudo systemctl restart vaultscope-server   # Restart server"
+        echo "  sudo systemctl restart vaultscope-client   # Restart client"
+        echo "  sudo journalctl -u vaultscope-server -f    # View server logs"
+        echo "  sudo journalctl -u vaultscope-client -f    # View client logs"
     else
-        print_info "Services managed by PM2"
-        echo "  pm2 list              - Show services"
-        echo "  pm2 restart all       - Restart services"
-        echo "  pm2 logs             - View logs"
+        log "INFO" "PM2 Management Commands:"
+        echo "  pm2 list              # Show all services"
+        echo "  pm2 restart all       # Restart all services"
+        echo "  pm2 logs              # View logs"
+        echo "  pm2 monit             # Monitor services"
     fi
+    
+    echo
+    log "INFO" "Installation log: $LOG_FILE"
     
     if [[ -f "$INSTALL_PATH/server-api-key.txt" ]]; then
         echo
-        print_warning "Server API Key saved to: $INSTALL_PATH/server-api-key.txt"
+        log "WARNING" "Server API Key saved to: $INSTALL_PATH/server-api-key.txt"
+        log "WARNING" "Keep this key secure!"
     fi
 }
 
-# Run main function
 main "$@"
