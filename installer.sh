@@ -772,13 +772,13 @@ uninstall_vaultscope() {
 }
 
 show_menu() {
-    clear
+    echo
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║           VaultScope Statistics Installer               ║${NC}"
     echo -e "${CYAN}║                 Version $SCRIPT_VERSION - Production              ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
     echo
-    echo "Installation Options:"
+    echo -e "${YELLOW}Installation Options:${NC}"
     echo "  1. Install Client only (Dashboard)"
     echo "  2. Install Server only (Monitoring Agent)"
     echo "  3. Install Both (Recommended)"
@@ -790,7 +790,7 @@ show_menu() {
     while [[ ! "$choice" =~ ^[1-5]$ ]]; do
         read -p "Enter your choice (1-5): " choice
         if [[ ! "$choice" =~ ^[1-5]$ ]]; then
-            echo "Invalid choice. Please enter a number between 1 and 5."
+            echo -e "${RED}Invalid choice. Please enter a number between 1 and 5.${NC}"
         fi
     done
     echo "$choice"
