@@ -1,129 +1,305 @@
 #!/bin/bash
 
-# Statistics Software Installer Script
-# Supports: macOS, Linux (Debian/Ubuntu, Arch, and others)
-# Features: Client/Server installation, CLI tool, Reverse Proxy setup, SSL certificates, Auto-start services
+# Statistics Software Installer Script v2.0
+# Professional installer with proper functionality and error handling
+# Supports: macOS, Linux (Debian/Ubuntu, Arch, RHEL-based, Alpine)
 
 set -e
+trap 'handle_error $? $LINENO' ERR
 
-# Colors for output
+# Colors and formatting
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
+WHITE='\033[1;37m'
+NC='\033[0m'
+BOLD='\033[1m'
 
-# Global variables
-INSTALL_DIR="/opt/statistics"
-CONFIG_DIR="/etc/statistics"
-LOG_FILE="/tmp/statistics_install_$(date +%Y%m%d_%H%M%S).log"
-CURRENT_USER=$(whoami)
-HOME_DIR=$HOME
+# Installation configuration
+INSTALL_DIR="/var/www/vaultscope-statistics"
+CONFIG_DIR="/etc/vaultscope-statistics"
+LOG_FILE="/var/log/statistics_install_$(date +%Y%m%d_%H%M%S).log"
+BACKUP_DIR="/var/backups/vaultscope-statistics"
+REPO_URL="https://github.com/vaultscope/statistics.git"
 NVM_VERSION="v0.39.7"
 NODE_VERSION="20"
 
-# Installation choices
+# User configuration
 INSTALL_CLIENT=false
 INSTALL_SERVER=false
 INSTALL_CLI=false
 INSTALL_REVERSE_PROXY=""
 USE_SSL=false
-DOMAIN_NAME=""
+API_DOMAIN=""
+CLIENT_DOMAIN=""
+SSL_EMAIL=""
+EXISTING_INSTALL=false
+UPGRADE_MODE=false
 
-# Function to print colored output
-print_message() {
-    local color=$1
-    shift
-    echo -e "${color}$*${NC}"
+# System detection
+OS=""
+PKG_MANAGER=""
+SERVICE_MANAGER=""
+ARCH=$(uname -m)
+
+# Function to handle errors
+handle_error() {
+    local exit_code=$1
+    local line_number=$2
+    print_error "Installation failed at line $line_number with exit code $exit_code"
+    print_error "Check the log file for details: $LOG_FILE"
+    exit $exit_code
 }
 
-# Function to log messages
-log_message() {
+# Logging function
+log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"
 }
 
-# Function to check if running as root
+# Print functions with better formatting
+print_header() {
+    clear
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${NC}${WHITE}${BOLD}         VaultScope Statistics Software Installer v2.0            ${NC}${CYAN}║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+}
+
+print_section() {
+    echo ""
+    echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${WHITE}${BOLD}  $1${NC}"
+    echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+}
+
+print_success() {
+    echo -e "${GREEN}✓${NC} $*"
+    log "SUCCESS: $*"
+}
+
+print_error() {
+    echo -e "${RED}✗${NC} $*"
+    log "ERROR: $*"
+}
+
+print_warning() {
+    echo -e "${YELLOW}⚠${NC} $*"
+    log "WARNING: $*"
+}
+
+print_info() {
+    echo -e "${BLUE}ℹ${NC} $*"
+    log "INFO: $*"
+}
+
+print_progress() {
+    echo -ne "${CYAN}⟳${NC} $*..."
+    log "PROGRESS: $*"
+}
+
+print_done() {
+    echo -e " ${GREEN}done${NC}"
+}
+
+# Spinner function for long operations
+spinner() {
+    local pid=$1
+    local delay=0.1
+    local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
+        local temp=${spinstr#?}
+        printf " [%c]  " "$spinstr"
+        local spinstr=$temp${spinstr%"$temp"}
+        sleep $delay
+        printf "\b\b\b\b\b\b"
+    done
+    printf "    \b\b\b\b"
+}
+
+# Check root privileges
 check_root() {
     if [ "$EUID" -ne 0 ]; then
-        print_message $RED "This script must be run as root or with sudo"
+        print_error "This installer must be run with root privileges"
+        echo ""
+        echo "Please run: sudo bash installer.sh"
         exit 1
     fi
 }
 
-# Function to detect OS
+# Detect operating system
 detect_os() {
+    print_progress "Detecting operating system"
+    
     if [[ "$OSTYPE" == "darwin"* ]]; then
         OS="macos"
         PKG_MANAGER="brew"
         SERVICE_MANAGER="launchd"
-    elif [ -f /etc/debian_version ]; then
-        OS="debian"
-        PKG_MANAGER="apt-get"
-        SERVICE_MANAGER="systemd"
-    elif [ -f /etc/arch-release ]; then
-        OS="arch"
-        PKG_MANAGER="pacman"
-        SERVICE_MANAGER="systemd"
-    elif [ -f /etc/redhat-release ]; then
-        OS="redhat"
-        PKG_MANAGER="yum"
-        SERVICE_MANAGER="systemd"
-    elif [ -f /etc/fedora-release ]; then
-        OS="fedora"
-        PKG_MANAGER="dnf"
-        SERVICE_MANAGER="systemd"
-    elif [ -f /etc/alpine-release ]; then
-        OS="alpine"
-        PKG_MANAGER="apk"
-        SERVICE_MANAGER="openrc"
+    elif [ -f /etc/os-release ]; then
+        . /etc/os-release
+        case "$ID" in
+            debian|ubuntu|raspbian)
+                OS="debian"
+                PKG_MANAGER="apt"
+                SERVICE_MANAGER="systemd"
+                ;;
+            arch|manjaro)
+                OS="arch"
+                PKG_MANAGER="pacman"
+                SERVICE_MANAGER="systemd"
+                ;;
+            fedora)
+                OS="fedora"
+                PKG_MANAGER="dnf"
+                SERVICE_MANAGER="systemd"
+                ;;
+            centos|rhel|rocky|almalinux)
+                OS="rhel"
+                PKG_MANAGER="yum"
+                SERVICE_MANAGER="systemd"
+                ;;
+            alpine)
+                OS="alpine"
+                PKG_MANAGER="apk"
+                SERVICE_MANAGER="openrc"
+                ;;
+            *)
+                print_error "Unsupported Linux distribution: $ID"
+                exit 1
+                ;;
+        esac
     else
-        print_message $RED "Unsupported operating system"
+        print_error "Unable to detect operating system"
         exit 1
     fi
     
-    print_message $GREEN "Detected OS: $OS"
-    print_message $GREEN "Package Manager: $PKG_MANAGER"
-    print_message $GREEN "Service Manager: $SERVICE_MANAGER"
-    log_message "OS: $OS, Package Manager: $PKG_MANAGER, Service Manager: $SERVICE_MANAGER"
+    print_done
+    print_info "Detected: $OS ($ARCH) | Package Manager: $PKG_MANAGER | Service Manager: $SERVICE_MANAGER"
 }
 
-# Function to update package manager
+# Check for existing installation
+check_existing_installation() {
+    print_progress "Checking for existing installation"
+    
+    if [ -d "$INSTALL_DIR" ] || [ -f /usr/local/bin/statistics ] || \
+       [ -f /etc/systemd/system/statistics-server.service ] || \
+       [ -f /etc/systemd/system/statistics-client.service ]; then
+        EXISTING_INSTALL=true
+        print_done
+        print_warning "Existing installation detected"
+        
+        echo ""
+        echo -e "${YELLOW}An existing installation was found. What would you like to do?${NC}"
+        echo ""
+        echo "  1) Upgrade existing installation"
+        echo "  2) Remove and reinstall fresh"
+        echo "  3) Cancel installation"
+        echo ""
+        read -p "$(echo -e ${CYAN}"Enter your choice [1-3]: "${NC})" upgrade_choice
+        
+        case $upgrade_choice in
+            1)
+                UPGRADE_MODE=true
+                backup_existing_installation
+                ;;
+            2)
+                print_info "Removing existing installation..."
+                remove_existing_installation
+                ;;
+            3)
+                print_info "Installation cancelled"
+                exit 0
+                ;;
+            *)
+                print_error "Invalid choice"
+                exit 1
+                ;;
+        esac
+    else
+        print_done
+        print_success "No existing installation found"
+    fi
+}
+
+# Backup existing installation
+backup_existing_installation() {
+    print_progress "Creating backup of existing installation"
+    
+    mkdir -p "$BACKUP_DIR"
+    local backup_name="backup_$(date +%Y%m%d_%H%M%S)"
+    
+    if [ -d "$INSTALL_DIR" ]; then
+        cp -r "$INSTALL_DIR" "$BACKUP_DIR/$backup_name" 2>/dev/null || true
+    fi
+    
+    print_done
+    print_success "Backup created at $BACKUP_DIR/$backup_name"
+}
+
+# Remove existing installation
+remove_existing_installation() {
+    # Stop services
+    systemctl stop statistics-server 2>/dev/null || true
+    systemctl stop statistics-client 2>/dev/null || true
+    systemctl disable statistics-server 2>/dev/null || true
+    systemctl disable statistics-client 2>/dev/null || true
+    
+    # Remove service files
+    rm -f /etc/systemd/system/statistics-*.service
+    
+    # Remove installation directory
+    rm -rf "$INSTALL_DIR"
+    
+    # Remove CLI tool
+    rm -f /usr/local/bin/statistics
+    
+    # Remove configs
+    rm -rf "$CONFIG_DIR"
+    
+    print_success "Existing installation removed"
+}
+
+# Update package manager
 update_package_manager() {
-    print_message $BLUE "Updating package manager..."
+    print_progress "Updating package manager"
+    
     case $PKG_MANAGER in
-        brew)
-            brew update > /dev/null 2>&1 || true
-            ;;
-        apt-get)
+        apt)
             apt-get update -qq > /dev/null 2>&1
             ;;
         pacman)
-            pacman -Syy --noconfirm > /dev/null 2>&1
+            pacman -Sy --noconfirm > /dev/null 2>&1
             ;;
         yum)
-            yum update -y -q > /dev/null 2>&1
+            yum makecache -q > /dev/null 2>&1
             ;;
         dnf)
-            dnf update -y -q > /dev/null 2>&1
+            dnf makecache -q > /dev/null 2>&1
             ;;
         apk)
             apk update > /dev/null 2>&1
             ;;
+        brew)
+            brew update > /dev/null 2>&1
+            ;;
     esac
+    
+    print_done
 }
 
-# Function to install package
+# Install package
 install_package() {
     local package=$1
-    print_message $BLUE "Installing $package..."
-    log_message "Installing package: $package"
+    local package_name=${2:-$package}
+    
+    print_progress "Installing $package_name"
     
     case $PKG_MANAGER in
-        brew)
-            brew install "$package" > /dev/null 2>&1 || true
-            ;;
-        apt-get)
-            apt-get install -y -qq "$package" > /dev/null 2>&1
+        apt)
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$package" > /dev/null 2>&1
             ;;
         pacman)
             pacman -S --noconfirm --needed "$package" > /dev/null 2>&1
@@ -137,237 +313,286 @@ install_package() {
         apk)
             apk add --no-cache "$package" > /dev/null 2>&1
             ;;
+        brew)
+            brew install "$package" > /dev/null 2>&1
+            ;;
     esac
+    
+    print_done
 }
 
-# Function to install basic dependencies
-install_basic_dependencies() {
-    print_message $YELLOW "Installing basic dependencies..."
+# Install dependencies
+install_dependencies() {
+    print_section "Installing System Dependencies"
     
-    local deps=("curl" "wget" "git" "build-essential" "python3")
+    local deps=""
     
-    if [ "$OS" == "macos" ]; then
-        deps=("curl" "wget" "git" "python3")
-    elif [ "$OS" == "arch" ]; then
-        deps=("curl" "wget" "git" "base-devel" "python")
-    elif [ "$OS" == "alpine" ]; then
-        deps=("curl" "wget" "git" "build-base" "python3")
-    fi
+    case $OS in
+        debian)
+            deps="curl wget git build-essential python3 python3-pip ca-certificates gnupg lsb-release"
+            ;;
+        arch)
+            deps="curl wget git base-devel python python-pip"
+            ;;
+        rhel|fedora)
+            deps="curl wget git gcc gcc-c++ make python3 python3-pip"
+            ;;
+        alpine)
+            deps="curl wget git build-base python3 py3-pip"
+            ;;
+        macos)
+            deps="curl wget git python3"
+            ;;
+    esac
     
-    for dep in "${deps[@]}"; do
+    for dep in $deps; do
         install_package "$dep"
     done
+    
+    print_success "All system dependencies installed"
 }
 
-# Function to install NVM and Node.js
+# Install NVM and Node.js
 install_nvm_node() {
-    print_message $YELLOW "Installing NVM and Node.js..."
-    log_message "Installing NVM version $NVM_VERSION"
+    print_section "Installing Node.js Environment"
     
-    # Install NVM
-    if [ ! -d "$HOME_DIR/.nvm" ]; then
+    local NVM_DIR="/opt/nvm"
+    
+    if [ ! -d "$NVM_DIR" ]; then
+        print_progress "Installing NVM"
+        export NVM_DIR="$NVM_DIR"
         curl -o- "https://raw.githubusercontent.com/nvm-sh/nvm/$NVM_VERSION/install.sh" 2>/dev/null | bash > /dev/null 2>&1
-        
-        # Load NVM
-        export NVM_DIR="$HOME_DIR/.nvm"
-        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-        [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+        print_done
     else
-        print_message $GREEN "NVM already installed"
-        export NVM_DIR="$HOME_DIR/.nvm"
-        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+        print_info "NVM already installed"
     fi
     
-    # Install Node.js
-    print_message $BLUE "Installing Node.js version $NODE_VERSION..."
+    # Load NVM
+    export NVM_DIR="$NVM_DIR"
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+    
+    print_progress "Installing Node.js v$NODE_VERSION"
     nvm install "$NODE_VERSION" > /dev/null 2>&1
     nvm use "$NODE_VERSION" > /dev/null 2>&1
     nvm alias default "$NODE_VERSION" > /dev/null 2>&1
+    print_done
     
-    print_message $GREEN "Node.js $(node --version) installed"
-    print_message $GREEN "NPM $(npm --version) installed"
+    print_success "Node.js $(node --version) installed"
+    print_success "NPM $(npm --version) installed"
 }
 
-# Function to show installation menu
-show_menu() {
-    clear
-    print_message $BLUE "======================================"
-    print_message $BLUE "   Statistics Software Installer"
-    print_message $BLUE "======================================"
+# Component selection menu
+show_component_menu() {
+    print_section "Component Selection"
+    
+    echo -e "${WHITE}Select components to install:${NC}"
+    echo ""
+    echo "  1) Server (API) only"
+    echo "  2) Client (Frontend) only"
+    echo "  3) Both Server and Client ${GREEN}[Recommended]${NC}"
     echo ""
     
-    # Component selection
-    print_message $YELLOW "What would you like to install?"
-    echo "1) Client only"
-    echo "2) Server only"
-    echo "3) Both Client and Server"
-    read -p "Enter your choice (1-3): " choice
+    read -p "$(echo -e ${CYAN}"Enter your choice [1-3]: "${NC})" component_choice
     
-    case $choice in
+    case $component_choice in
         1)
-            INSTALL_CLIENT=true
+            INSTALL_SERVER=true
+            print_success "Server component selected"
             ;;
         2)
-            INSTALL_SERVER=true
+            INSTALL_CLIENT=true
+            print_success "Client component selected"
             ;;
         3)
-            INSTALL_CLIENT=true
             INSTALL_SERVER=true
+            INSTALL_CLIENT=true
+            print_success "Both components selected"
             ;;
         *)
-            print_message $RED "Invalid choice"
+            print_error "Invalid choice"
             exit 1
             ;;
     esac
     
-    # CLI tool installation
     echo ""
-    read -p "Install Statistics CLI tool? (y/n): " install_cli
+    read -p "$(echo -e ${CYAN}"Install CLI management tool? [Y/n]: "${NC})" install_cli
+    install_cli=${install_cli:-Y}
+    
     if [[ $install_cli =~ ^[Yy]$ ]]; then
         INSTALL_CLI=true
+        print_success "CLI tool will be installed"
     fi
+}
+
+# Reverse proxy selection
+show_proxy_menu() {
+    print_section "Reverse Proxy Configuration"
     
-    # Reverse proxy selection
+    echo -e "${WHITE}Select reverse proxy:${NC}"
     echo ""
-    print_message $YELLOW "Select reverse proxy (optional):"
-    echo "1) Cloudflared (Cloudflare Tunnel)"
-    echo "2) Nginx"
-    echo "3) Apache"
-    echo "4) None"
-    read -p "Enter your choice (1-4): " proxy_choice
+    echo "  1) Nginx ${GREEN}[Recommended]${NC}"
+    echo "  2) Apache"
+    echo "  3) Cloudflare Tunnel (cloudflared)"
+    echo "  4) None (direct access only)"
+    echo ""
+    
+    read -p "$(echo -e ${CYAN}"Enter your choice [1-4]: "${NC})" proxy_choice
     
     case $proxy_choice in
         1)
-            INSTALL_REVERSE_PROXY="cloudflared"
+            INSTALL_REVERSE_PROXY="nginx"
+            print_success "Nginx selected"
             ;;
         2)
-            INSTALL_REVERSE_PROXY="nginx"
+            INSTALL_REVERSE_PROXY="apache"
+            print_success "Apache selected"
             ;;
         3)
-            INSTALL_REVERSE_PROXY="apache"
+            INSTALL_REVERSE_PROXY="cloudflared"
+            print_success "Cloudflare Tunnel selected"
             ;;
         4)
             INSTALL_REVERSE_PROXY=""
+            print_info "No reverse proxy selected"
+            return
             ;;
         *)
-            print_message $RED "Invalid choice"
+            print_error "Invalid choice"
             exit 1
             ;;
     esac
     
-    # SSL configuration
+    # Get domain configuration
+    echo ""
+    echo -e "${WHITE}Domain Configuration:${NC}"
+    echo ""
+    
+    if [ "$INSTALL_SERVER" = true ]; then
+        read -p "$(echo -e ${CYAN}"Enter domain for API/Server (e.g., api.example.com): "${NC})" API_DOMAIN
+        while [ -z "$API_DOMAIN" ]; do
+            print_warning "Domain cannot be empty"
+            read -p "$(echo -e ${CYAN}"Enter domain for API/Server: "${NC})" API_DOMAIN
+        done
+    fi
+    
+    if [ "$INSTALL_CLIENT" = true ]; then
+        read -p "$(echo -e ${CYAN}"Enter domain for Client/Frontend (e.g., app.example.com): "${NC})" CLIENT_DOMAIN
+        while [ -z "$CLIENT_DOMAIN" ]; do
+            print_warning "Domain cannot be empty"
+            read -p "$(echo -e ${CYAN}"Enter domain for Client/Frontend: "${NC})" CLIENT_DOMAIN
+        done
+    fi
+    
+    # SSL configuration for Nginx/Apache
     if [ "$INSTALL_REVERSE_PROXY" == "nginx" ] || [ "$INSTALL_REVERSE_PROXY" == "apache" ]; then
         echo ""
-        read -p "Configure SSL with Let's Encrypt? (y/n): " use_ssl
+        read -p "$(echo -e ${CYAN}"Configure SSL with Let's Encrypt? [Y/n]: "${NC})" use_ssl
+        use_ssl=${use_ssl:-Y}
+        
         if [[ $use_ssl =~ ^[Yy]$ ]]; then
             USE_SSL=true
-            read -p "Enter your domain name: " DOMAIN_NAME
+            read -p "$(echo -e ${CYAN}"Enter email for SSL certificates: "${NC})" SSL_EMAIL
+            while [ -z "$SSL_EMAIL" ]; do
+                print_warning "Email cannot be empty for SSL setup"
+                read -p "$(echo -e ${CYAN}"Enter email for SSL certificates: "${NC})" SSL_EMAIL
+            done
+            print_success "SSL will be configured"
         fi
     fi
 }
 
-# Function to clone repository
-clone_repository() {
-    print_message $YELLOW "Setting up Statistics software..."
+# Clone and setup repository
+setup_repository() {
+    print_section "Setting Up Application"
     
-    # Create installation directory
+    # Create directories
+    print_progress "Creating installation directories"
     mkdir -p "$INSTALL_DIR"
     mkdir -p "$CONFIG_DIR"
+    mkdir -p "/var/log/vaultscope-statistics"
+    print_done
     
-    # Clone or copy the repository
-    if [ -d "./server" ] && [ -d "./client" ]; then
-        print_message $BLUE "Copying local files to $INSTALL_DIR..."
-        cp -r ./* "$INSTALL_DIR/" 2>/dev/null || true
+    # Clone repository
+    print_progress "Cloning repository from GitHub"
+    if [ -d "$INSTALL_DIR/.git" ]; then
+        cd "$INSTALL_DIR"
+        git pull origin main > /dev/null 2>&1
     else
-        print_message $BLUE "Cloning repository..."
-        git clone https://github.com/vaultscope/statistics.git "$INSTALL_DIR" > /dev/null 2>&1
+        git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null 2>&1
     fi
+    print_done
     
     cd "$INSTALL_DIR"
-}
-
-# Function to install Node.js dependencies
-install_node_dependencies() {
-    print_message $YELLOW "Installing Node.js dependencies..."
-    cd "$INSTALL_DIR"
     
-    # Install dependencies silently
-    npm install --silent > /dev/null 2>&1
+    # Install Node dependencies
+    print_progress "Installing Node.js dependencies"
+    export NVM_DIR="/opt/nvm"
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+    npm install --production --silent > /dev/null 2>&1 &
+    spinner $!
+    print_done
     
     # Build TypeScript
-    if [ "$INSTALL_CLIENT" = true ]; then
-        print_message $BLUE "Building client..."
-        npm run client:build > /dev/null 2>&1 || true
+    if [ -f "tsconfig.json" ]; then
+        print_progress "Building TypeScript files"
+        npm run build > /dev/null 2>&1 &
+        spinner $!
+        print_done
     fi
     
-    # Build CSS
-    print_message $BLUE "Building CSS..."
-    npm run css:build > /dev/null 2>&1 || true
+    # Build client if needed
+    if [ "$INSTALL_CLIENT" = true ] && [ -d "client" ]; then
+        print_progress "Building client application"
+        npm run client:build > /dev/null 2>&1 &
+        spinner $!
+        print_done
+    fi
+    
+    # Copy uninstaller
+    if [ -f "$INSTALL_DIR/uninstaller.sh" ]; then
+        cp "$INSTALL_DIR/uninstaller.sh" /usr/local/bin/statistics-uninstall
+        chmod +x /usr/local/bin/statistics-uninstall
+        print_success "Uninstaller available at: statistics-uninstall"
+    fi
+    
+    print_success "Application setup complete"
 }
 
-# Function to install CLI tool
+# Install CLI tool
 install_cli_tool() {
-    if [ "$INSTALL_CLI" = true ]; then
-        print_message $YELLOW "Installing Statistics CLI tool..."
-        
-        # Create symbolic link for CLI
-        ln -sf "$INSTALL_DIR/cli.js" /usr/local/bin/statistics
-        chmod +x /usr/local/bin/statistics
-        
-        # Make CLI executable with node
-        cat > /usr/local/bin/statistics << EOF
+    if [ "$INSTALL_CLI" != true ]; then
+        return
+    fi
+    
+    print_section "Installing CLI Tool"
+    
+    cat > /usr/local/bin/statistics << 'EOF'
 #!/bin/bash
-cd $INSTALL_DIR
-node cli.js "\$@"
+export NVM_DIR="/opt/nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+cd /var/www/vaultscope-statistics
+node cli.js "$@"
 EOF
-        chmod +x /usr/local/bin/statistics
-        
-        print_message $GREEN "CLI tool installed. Use 'statistics' command to manage the application"
-    fi
+    
+    chmod +x /usr/local/bin/statistics
+    print_success "CLI tool installed as 'statistics'"
 }
 
-# Function to install Cloudflared
-install_cloudflared() {
-    print_message $YELLOW "Installing Cloudflared..."
+# Configure Nginx
+configure_nginx() {
+    print_section "Configuring Nginx"
     
-    if [ "$OS" == "macos" ]; then
-        brew install cloudflare/cloudflare/cloudflared > /dev/null 2>&1
-    elif [ "$OS" == "debian" ] || [ "$OS" == "ubuntu" ]; then
-        wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-        dpkg -i cloudflared-linux-amd64.deb > /dev/null 2>&1
-        rm cloudflared-linux-amd64.deb
-    elif [ "$OS" == "arch" ]; then
-        install_package cloudflared
-    else
-        # Generic Linux installation
-        wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
-        mv cloudflared-linux-amd64 /usr/local/bin/cloudflared
-        chmod +x /usr/local/bin/cloudflared
-    fi
-    
-    print_message $GREEN "Cloudflared installed"
-}
-
-# Function to install and configure Nginx
-install_nginx() {
-    print_message $YELLOW "Installing Nginx..."
     install_package nginx
     
-    # Configure Nginx
-    local port=4000
-    if [ "$INSTALL_SERVER" = true ]; then
-        port=4000
-    elif [ "$INSTALL_CLIENT" = true ]; then
-        port=3000
-    fi
-    
-    cat > /etc/nginx/sites-available/statistics << EOF
+    # Configure API/Server
+    if [ "$INSTALL_SERVER" = true ] && [ -n "$API_DOMAIN" ]; then
+        cat > /etc/nginx/sites-available/statistics-api << EOF
 server {
     listen 80;
-    server_name ${DOMAIN_NAME:-localhost};
+    server_name $API_DOMAIN;
     
     location / {
-        proxy_pass http://localhost:$port;
+        proxy_pass http://127.0.0.1:4000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -377,117 +602,204 @@ server {
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
     }
+    
+    access_log /var/log/nginx/statistics-api.access.log;
+    error_log /var/log/nginx/statistics-api.error.log;
 }
 EOF
+        ln -sf /etc/nginx/sites-available/statistics-api /etc/nginx/sites-enabled/
+        print_success "Nginx configured for API at $API_DOMAIN"
+    fi
     
-    # Enable site
-    ln -sf /etc/nginx/sites-available/statistics /etc/nginx/sites-enabled/statistics
+    # Configure Client/Frontend
+    if [ "$INSTALL_CLIENT" = true ] && [ -n "$CLIENT_DOMAIN" ]; then
+        cat > /etc/nginx/sites-available/statistics-client << EOF
+server {
+    listen 80;
+    server_name $CLIENT_DOMAIN;
     
-    # Remove default site if exists
-    rm -f /etc/nginx/sites-enabled/default
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
     
-    # Test and reload Nginx
+    access_log /var/log/nginx/statistics-client.access.log;
+    error_log /var/log/nginx/statistics-client.error.log;
+}
+EOF
+        ln -sf /etc/nginx/sites-available/statistics-client /etc/nginx/sites-enabled/
+        print_success "Nginx configured for Client at $CLIENT_DOMAIN"
+    fi
+    
+    # Test and reload
     nginx -t > /dev/null 2>&1
-    systemctl reload nginx > /dev/null 2>&1
-    
-    print_message $GREEN "Nginx configured"
+    systemctl reload nginx
+    systemctl enable nginx > /dev/null 2>&1
 }
 
-# Function to install and configure Apache
-install_apache() {
-    print_message $YELLOW "Installing Apache..."
+# Configure Apache
+configure_apache() {
+    print_section "Configuring Apache"
     
     if [ "$OS" == "debian" ]; then
         install_package apache2
-        a2enmod proxy proxy_http > /dev/null 2>&1
-        SERVICE_NAME="apache2"
-    elif [ "$OS" == "arch" ]; then
-        install_package apache
-        SERVICE_NAME="httpd"
+        a2enmod proxy proxy_http headers > /dev/null 2>&1
+        APACHE_SITES="/etc/apache2/sites-available"
+        APACHE_SERVICE="apache2"
     else
         install_package httpd
-        SERVICE_NAME="httpd"
+        APACHE_SITES="/etc/httpd/conf.d"
+        APACHE_SERVICE="httpd"
     fi
     
-    # Configure Apache
-    local port=4000
-    if [ "$INSTALL_SERVER" = true ]; then
-        port=4000
-    elif [ "$INSTALL_CLIENT" = true ]; then
-        port=3000
-    fi
-    
-    cat > /etc/apache2/sites-available/statistics.conf << EOF
+    # Configure API/Server
+    if [ "$INSTALL_SERVER" = true ] && [ -n "$API_DOMAIN" ]; then
+        cat > "$APACHE_SITES/statistics-api.conf" << EOF
 <VirtualHost *:80>
-    ServerName ${DOMAIN_NAME:-localhost}
+    ServerName $API_DOMAIN
     
     ProxyRequests Off
     ProxyPreserveHost On
     
-    <Proxy *>
-        Order deny,allow
-        Allow from all
-    </Proxy>
+    ProxyPass / http://127.0.0.1:4000/
+    ProxyPassReverse / http://127.0.0.1:4000/
     
-    ProxyPass / http://localhost:$port/
-    ProxyPassReverse / http://localhost:$port/
+    ErrorLog /var/log/apache2/statistics-api.error.log
+    CustomLog /var/log/apache2/statistics-api.access.log combined
 </VirtualHost>
 EOF
+        if [ "$OS" == "debian" ]; then
+            a2ensite statistics-api > /dev/null 2>&1
+        fi
+        print_success "Apache configured for API at $API_DOMAIN"
+    fi
     
-    # Enable site
-    a2ensite statistics > /dev/null 2>&1
-    a2dissite 000-default > /dev/null 2>&1
+    # Configure Client/Frontend
+    if [ "$INSTALL_CLIENT" = true ] && [ -n "$CLIENT_DOMAIN" ]; then
+        cat > "$APACHE_SITES/statistics-client.conf" << EOF
+<VirtualHost *:80>
+    ServerName $CLIENT_DOMAIN
     
-    # Reload Apache
-    systemctl reload $SERVICE_NAME > /dev/null 2>&1
+    ProxyRequests Off
+    ProxyPreserveHost On
     
-    print_message $GREEN "Apache configured"
+    ProxyPass / http://127.0.0.1:3000/
+    ProxyPassReverse / http://127.0.0.1:3000/
+    
+    ErrorLog /var/log/apache2/statistics-client.error.log
+    CustomLog /var/log/apache2/statistics-client.access.log combined
+</VirtualHost>
+EOF
+        if [ "$OS" == "debian" ]; then
+            a2ensite statistics-client > /dev/null 2>&1
+        fi
+        print_success "Apache configured for Client at $CLIENT_DOMAIN"
+    fi
+    
+    systemctl reload $APACHE_SERVICE
+    systemctl enable $APACHE_SERVICE > /dev/null 2>&1
 }
 
-# Function to configure SSL with Let's Encrypt
+# Configure Cloudflared
+configure_cloudflared() {
+    print_section "Configuring Cloudflare Tunnel"
+    
+    # Install cloudflared
+    print_progress "Installing cloudflared"
+    
+    if [ "$OS" == "debian" ]; then
+        curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o /tmp/cloudflared.deb > /dev/null 2>&1
+        dpkg -i /tmp/cloudflared.deb > /dev/null 2>&1
+        rm /tmp/cloudflared.deb
+    elif [ "$OS" == "arch" ]; then
+        install_package cloudflared
+    else
+        curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared > /dev/null 2>&1
+        chmod +x /usr/local/bin/cloudflared
+    fi
+    
+    print_done
+    
+    # Create config directory
+    mkdir -p /etc/cloudflared
+    
+    print_warning "Cloudflare Tunnel requires manual configuration:"
+    echo ""
+    echo "  1. Run: cloudflared tunnel login"
+    echo "  2. Run: cloudflared tunnel create statistics"
+    echo "  3. Configure your tunnel with the domains:"
+    if [ "$INSTALL_SERVER" = true ]; then
+        echo "     - API: $API_DOMAIN → http://localhost:4000"
+    fi
+    if [ "$INSTALL_CLIENT" = true ]; then
+        echo "     - Client: $CLIENT_DOMAIN → http://localhost:3000"
+    fi
+    echo ""
+}
+
+# Configure SSL
 configure_ssl() {
-    if [ "$USE_SSL" = true ] && [ -n "$DOMAIN_NAME" ]; then
-        print_message $YELLOW "Configuring SSL with Let's Encrypt..."
-        
-        # Install Certbot
-        if [ "$OS" == "debian" ]; then
-            install_package certbot
-            if [ "$INSTALL_REVERSE_PROXY" == "nginx" ]; then
-                install_package python3-certbot-nginx
-            elif [ "$INSTALL_REVERSE_PROXY" == "apache" ]; then
-                install_package python3-certbot-apache
-            fi
-        elif [ "$OS" == "arch" ]; then
-            install_package certbot
-            if [ "$INSTALL_REVERSE_PROXY" == "nginx" ]; then
-                install_package certbot-nginx
-            elif [ "$INSTALL_REVERSE_PROXY" == "apache" ]; then
-                install_package certbot-apache
-            fi
-        fi
-        
-        # Obtain certificate
+    if [ "$USE_SSL" != true ]; then
+        return
+    fi
+    
+    print_section "Configuring SSL Certificates"
+    
+    # Install certbot
+    print_progress "Installing Certbot"
+    
+    if [ "$OS" == "debian" ]; then
+        install_package certbot
         if [ "$INSTALL_REVERSE_PROXY" == "nginx" ]; then
-            certbot --nginx -d "$DOMAIN_NAME" --non-interactive --agree-tos --email admin@$DOMAIN_NAME > /dev/null 2>&1
+            install_package python3-certbot-nginx "Certbot Nginx plugin"
         elif [ "$INSTALL_REVERSE_PROXY" == "apache" ]; then
-            certbot --apache -d "$DOMAIN_NAME" --non-interactive --agree-tos --email admin@$DOMAIN_NAME > /dev/null 2>&1
+            install_package python3-certbot-apache "Certbot Apache plugin"
         fi
-        
-        # Setup auto-renewal
-        cat > /etc/systemd/system/certbot-renewal.service << EOF
-[Unit]
-Description=Certbot Renewal
-After=network.target
-
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/certbot renew --quiet
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-        cat > /etc/systemd/system/certbot-renewal.timer << EOF
+    elif [ "$OS" == "arch" ]; then
+        install_package certbot
+        if [ "$INSTALL_REVERSE_PROXY" == "nginx" ]; then
+            install_package certbot-nginx "Certbot Nginx plugin"
+        elif [ "$INSTALL_REVERSE_PROXY" == "apache" ]; then
+            install_package certbot-apache "Certbot Apache plugin"
+        fi
+    fi
+    
+    print_done
+    
+    # Obtain certificates
+    local domains=""
+    
+    if [ "$INSTALL_SERVER" = true ] && [ -n "$API_DOMAIN" ]; then
+        print_progress "Obtaining SSL certificate for $API_DOMAIN"
+        if [ "$INSTALL_REVERSE_PROXY" == "nginx" ]; then
+            certbot --nginx -d "$API_DOMAIN" --non-interactive --agree-tos --email "$SSL_EMAIL" > /dev/null 2>&1
+        elif [ "$INSTALL_REVERSE_PROXY" == "apache" ]; then
+            certbot --apache -d "$API_DOMAIN" --non-interactive --agree-tos --email "$SSL_EMAIL" > /dev/null 2>&1
+        fi
+        print_done
+    fi
+    
+    if [ "$INSTALL_CLIENT" = true ] && [ -n "$CLIENT_DOMAIN" ]; then
+        print_progress "Obtaining SSL certificate for $CLIENT_DOMAIN"
+        if [ "$INSTALL_REVERSE_PROXY" == "nginx" ]; then
+            certbot --nginx -d "$CLIENT_DOMAIN" --non-interactive --agree-tos --email "$SSL_EMAIL" > /dev/null 2>&1
+        elif [ "$INSTALL_REVERSE_PROXY" == "apache" ]; then
+            certbot --apache -d "$CLIENT_DOMAIN" --non-interactive --agree-tos --email "$SSL_EMAIL" > /dev/null 2>&1
+        fi
+        print_done
+    fi
+    
+    # Setup auto-renewal
+    print_progress "Setting up auto-renewal"
+    
+    cat > /etc/systemd/system/certbot-renewal.timer << EOF
 [Unit]
 Description=Twice daily renewal of Let's Encrypt certificates
 
@@ -499,286 +811,273 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 EOF
-        
-        systemctl enable certbot-renewal.timer > /dev/null 2>&1
-        systemctl start certbot-renewal.timer > /dev/null 2>&1
-        
-        print_message $GREEN "SSL configured with auto-renewal"
-    fi
+    
+    systemctl enable certbot-renewal.timer > /dev/null 2>&1
+    systemctl start certbot-renewal.timer > /dev/null 2>&1
+    
+    print_done
+    print_success "SSL certificates configured with auto-renewal"
 }
 
-# Function to create systemd service
-create_systemd_service() {
-    print_message $YELLOW "Creating systemd services..."
+# Create systemd services
+create_systemd_services() {
+    print_section "Creating System Services"
     
-    # Create service for server
+    # Server service
     if [ "$INSTALL_SERVER" = true ]; then
         cat > /etc/systemd/system/statistics-server.service << EOF
 [Unit]
-Description=Statistics Server
+Description=VaultScope Statistics API Server
 After=network.target
 
 [Service]
 Type=simple
-User=$CURRENT_USER
+User=www-data
+Group=www-data
 WorkingDirectory=$INSTALL_DIR
-Environment="PATH=$HOME_DIR/.nvm/versions/node/v$NODE_VERSION.*/bin:/usr/bin"
-ExecStart=$HOME_DIR/.nvm/versions/node/v$NODE_VERSION.*/bin/node $INSTALL_DIR/dist/server/index.js
+Environment="NODE_ENV=production"
+Environment="NVM_DIR=/opt/nvm"
+ExecStart=/opt/nvm/versions/node/v$NODE_VERSION.*/bin/node $INSTALL_DIR/dist/server/index.js
 Restart=always
 RestartSec=10
+StandardOutput=append:/var/log/vaultscope-statistics/server.log
+StandardError=append:/var/log/vaultscope-statistics/server-error.log
 
 [Install]
 WantedBy=multi-user.target
 EOF
         
-        systemctl daemon-reload > /dev/null 2>&1
+        systemctl daemon-reload
         systemctl enable statistics-server > /dev/null 2>&1
-        systemctl start statistics-server > /dev/null 2>&1
-        print_message $GREEN "Statistics server service created and started"
+        systemctl start statistics-server
+        
+        print_success "Server service created and started"
     fi
     
-    # Create service for client
+    # Client service
     if [ "$INSTALL_CLIENT" = true ]; then
         cat > /etc/systemd/system/statistics-client.service << EOF
 [Unit]
-Description=Statistics Client
+Description=VaultScope Statistics Client Frontend
 After=network.target
 
 [Service]
 Type=simple
-User=$CURRENT_USER
+User=www-data
+Group=www-data
 WorkingDirectory=$INSTALL_DIR
-Environment="PATH=$HOME_DIR/.nvm/versions/node/v$NODE_VERSION.*/bin:/usr/bin"
-ExecStart=$HOME_DIR/.nvm/versions/node/v$NODE_VERSION.*/bin/node $INSTALL_DIR/dist/client/index.js
+Environment="NODE_ENV=production"
+Environment="NVM_DIR=/opt/nvm"
+ExecStart=/opt/nvm/versions/node/v$NODE_VERSION.*/bin/node $INSTALL_DIR/dist/client/index.js
 Restart=always
 RestartSec=10
+StandardOutput=append:/var/log/vaultscope-statistics/client.log
+StandardError=append:/var/log/vaultscope-statistics/client-error.log
 
 [Install]
 WantedBy=multi-user.target
 EOF
         
-        systemctl daemon-reload > /dev/null 2>&1
+        systemctl daemon-reload
         systemctl enable statistics-client > /dev/null 2>&1
-        systemctl start statistics-client > /dev/null 2>&1
-        print_message $GREEN "Statistics client service created and started"
+        systemctl start statistics-client
+        
+        print_success "Client service created and started"
     fi
     
-    # Create service for cloudflared if selected
-    if [ "$INSTALL_REVERSE_PROXY" == "cloudflared" ]; then
-        cat > /etc/systemd/system/statistics-cloudflared.service << EOF
-[Unit]
-Description=Statistics Cloudflared Tunnel
-After=network.target
-
-[Service]
-Type=simple
-User=$CURRENT_USER
-ExecStart=/usr/local/bin/cloudflared tunnel run
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
-        
-        systemctl daemon-reload > /dev/null 2>&1
-        systemctl enable statistics-cloudflared > /dev/null 2>&1
-        print_message $YELLOW "Cloudflared service created. Configure your tunnel before starting the service."
-    fi
+    # Set permissions
+    chown -R www-data:www-data "$INSTALL_DIR"
+    chown -R www-data:www-data "/var/log/vaultscope-statistics"
 }
 
-# Function to create launchd service (macOS)
-create_launchd_service() {
-    print_message $YELLOW "Creating launchd services..."
+# Verify installation
+verify_installation() {
+    print_section "Verifying Installation"
     
-    # Create service for server
+    local all_good=true
+    
+    # Check services
     if [ "$INSTALL_SERVER" = true ]; then
-        cat > /Library/LaunchDaemons/com.statistics.server.plist << EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.statistics.server</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>$HOME_DIR/.nvm/versions/node/v$NODE_VERSION.*/bin/node</string>
-        <string>$INSTALL_DIR/dist/server/index.js</string>
-    </array>
-    <key>WorkingDirectory</key>
-    <string>$INSTALL_DIR</string>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardErrorPath</key>
-    <string>/var/log/statistics-server.err</string>
-    <key>StandardOutPath</key>
-    <string>/var/log/statistics-server.log</string>
-</dict>
-</plist>
-EOF
-        
-        launchctl load /Library/LaunchDaemons/com.statistics.server.plist > /dev/null 2>&1
-        print_message $GREEN "Statistics server service created and started"
+        if systemctl is-active --quiet statistics-server; then
+            print_success "Server service is running"
+        else
+            print_error "Server service is not running"
+            all_good=false
+        fi
     fi
     
-    # Create service for client
     if [ "$INSTALL_CLIENT" = true ]; then
-        cat > /Library/LaunchDaemons/com.statistics.client.plist << EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.statistics.client</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>$HOME_DIR/.nvm/versions/node/v$NODE_VERSION.*/bin/node</string>
-        <string>$INSTALL_DIR/dist/client/index.js</string>
-    </array>
-    <key>WorkingDirectory</key>
-    <string>$INSTALL_DIR</string>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardErrorPath</key>
-    <string>/var/log/statistics-client.err</string>
-    <key>StandardOutPath</key>
-    <string>/var/log/statistics-client.log</string>
-</dict>
-</plist>
-EOF
-        
-        launchctl load /Library/LaunchDaemons/com.statistics.client.plist > /dev/null 2>&1
-        print_message $GREEN "Statistics client service created and started"
+        if systemctl is-active --quiet statistics-client; then
+            print_success "Client service is running"
+        else
+            print_error "Client service is not running"
+            all_good=false
+        fi
+    fi
+    
+    # Check CLI
+    if [ "$INSTALL_CLI" = true ]; then
+        if [ -x /usr/local/bin/statistics ]; then
+            print_success "CLI tool is installed"
+        else
+            print_error "CLI tool is not installed"
+            all_good=false
+        fi
+    fi
+    
+    # Check reverse proxy
+    if [ "$INSTALL_REVERSE_PROXY" == "nginx" ]; then
+        if systemctl is-active --quiet nginx; then
+            print_success "Nginx is running"
+        else
+            print_error "Nginx is not running"
+            all_good=false
+        fi
+    elif [ "$INSTALL_REVERSE_PROXY" == "apache" ]; then
+        if systemctl is-active --quiet apache2 || systemctl is-active --quiet httpd; then
+            print_success "Apache is running"
+        else
+            print_error "Apache is not running"
+            all_good=false
+        fi
+    fi
+    
+    if [ "$all_good" = true ]; then
+        print_success "All components verified successfully"
+    else
+        print_warning "Some components need attention"
     fi
 }
 
-# Function to setup reverse proxy
-setup_reverse_proxy() {
-    if [ -n "$INSTALL_REVERSE_PROXY" ]; then
-        case $INSTALL_REVERSE_PROXY in
-            cloudflared)
-                install_cloudflared
-                ;;
-            nginx)
-                install_nginx
-                ;;
-            apache)
-                install_apache
-                ;;
-        esac
-        
-        # Configure SSL if requested
-        configure_ssl
-    fi
-}
-
-# Function to create services
-create_services() {
-    if [ "$SERVICE_MANAGER" == "systemd" ]; then
-        create_systemd_service
-    elif [ "$SERVICE_MANAGER" == "launchd" ]; then
-        create_launchd_service
-    fi
-}
-
-# Function to display completion message
-display_completion() {
-    print_message $GREEN "======================================"
-    print_message $GREEN "   Installation Complete!"
-    print_message $GREEN "======================================"
+# Display completion summary
+display_summary() {
+    print_header
+    print_section "Installation Complete!"
+    
+    echo -e "${GREEN}✓ VaultScope Statistics has been successfully installed!${NC}"
     echo ""
+    echo -e "${WHITE}${BOLD}Access Information:${NC}"
+    echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     
     if [ "$INSTALL_SERVER" = true ]; then
-        print_message $BLUE "Server: http://localhost:4000"
+        if [ -n "$API_DOMAIN" ]; then
+            if [ "$USE_SSL" = true ]; then
+                echo -e "${CYAN}API Server:${NC} https://$API_DOMAIN"
+            else
+                echo -e "${CYAN}API Server:${NC} http://$API_DOMAIN"
+            fi
+        else
+            echo -e "${CYAN}API Server:${NC} http://localhost:4000"
+        fi
     fi
     
     if [ "$INSTALL_CLIENT" = true ]; then
-        print_message $BLUE "Client: http://localhost:3000"
+        if [ -n "$CLIENT_DOMAIN" ]; then
+            if [ "$USE_SSL" = true ]; then
+                echo -e "${CYAN}Client App:${NC} https://$CLIENT_DOMAIN"
+            else
+                echo -e "${CYAN}Client App:${NC} http://$CLIENT_DOMAIN"
+            fi
+        else
+            echo -e "${CYAN}Client App:${NC} http://localhost:3000"
+        fi
     fi
+    
+    echo ""
+    echo -e "${WHITE}${BOLD}Management Commands:${NC}"
+    echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     
     if [ "$INSTALL_CLI" = true ]; then
-        print_message $BLUE "CLI: Use 'statistics' command"
+        echo -e "${CYAN}CLI Tool:${NC} statistics"
     fi
     
-    if [ -n "$INSTALL_REVERSE_PROXY" ]; then
-        print_message $BLUE "Reverse Proxy: $INSTALL_REVERSE_PROXY configured"
-        if [ "$USE_SSL" = true ]; then
-            print_message $BLUE "SSL: Configured with Let's Encrypt"
-        fi
+    if [ "$INSTALL_SERVER" = true ]; then
+        echo -e "${CYAN}Server:${NC} systemctl [start|stop|restart|status] statistics-server"
+    fi
+    
+    if [ "$INSTALL_CLIENT" = true ]; then
+        echo -e "${CYAN}Client:${NC} systemctl [start|stop|restart|status] statistics-client"
+    fi
+    
+    echo -e "${CYAN}Uninstall:${NC} statistics-uninstall"
+    
+    echo ""
+    echo -e "${WHITE}${BOLD}Important Locations:${NC}"
+    echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo -e "${CYAN}Installation:${NC} $INSTALL_DIR"
+    echo -e "${CYAN}Configuration:${NC} $CONFIG_DIR"
+    echo -e "${CYAN}Logs:${NC} /var/log/vaultscope-statistics/"
+    echo -e "${CYAN}Install Log:${NC} $LOG_FILE"
+    
+    if [ "$INSTALL_REVERSE_PROXY" == "cloudflared" ]; then
+        echo ""
+        echo -e "${YELLOW}⚠ Cloudflare Tunnel requires manual configuration${NC}"
+        echo "  Please follow the instructions provided earlier"
     fi
     
     echo ""
-    print_message $YELLOW "Services will start automatically on reboot"
-    print_message $YELLOW "Installation log: $LOG_FILE"
+    echo -e "${GREEN}Thank you for installing VaultScope Statistics!${NC}"
     echo ""
-    
-    # Service management commands
-    if [ "$SERVICE_MANAGER" == "systemd" ]; then
-        print_message $YELLOW "Service Management Commands:"
-        if [ "$INSTALL_SERVER" = true ]; then
-            echo "  Server: systemctl [start|stop|restart|status] statistics-server"
-        fi
-        if [ "$INSTALL_CLIENT" = true ]; then
-            echo "  Client: systemctl [start|stop|restart|status] statistics-client"
-        fi
-    elif [ "$SERVICE_MANAGER" == "launchd" ]; then
-        print_message $YELLOW "Service Management Commands:"
-        if [ "$INSTALL_SERVER" = true ]; then
-            echo "  Server: launchctl [start|stop] com.statistics.server"
-        fi
-        if [ "$INSTALL_CLIENT" = true ]; then
-            echo "  Client: launchctl [start|stop] com.statistics.client"
-        fi
-    fi
 }
 
-# Main installation flow
+# Main installation process
 main() {
-    # Initial setup
-    print_message $BLUE "Starting Statistics Software Installation..."
-    log_message "Installation started"
+    # Initialize log
+    mkdir -p $(dirname "$LOG_FILE")
+    touch "$LOG_FILE"
+    log "Installation started"
     
-    # Check root privileges
+    # Display header
+    print_header
+    
+    # Pre-installation checks
     check_root
-    
-    # Detect operating system
     detect_os
+    check_existing_installation
     
-    # Show installation menu
-    show_menu
+    # Get user preferences
+    show_component_menu
+    show_proxy_menu
     
-    # Update package manager
+    # Installation
+    print_section "Beginning Installation"
+    
     update_package_manager
-    
-    # Install basic dependencies
-    install_basic_dependencies
-    
-    # Install NVM and Node.js
+    install_dependencies
     install_nvm_node
-    
-    # Clone or copy repository
-    clone_repository
-    
-    # Install Node.js dependencies
-    install_node_dependencies
-    
-    # Install CLI tool
+    setup_repository
     install_cli_tool
     
-    # Setup reverse proxy
-    setup_reverse_proxy
+    # Configure reverse proxy
+    case $INSTALL_REVERSE_PROXY in
+        nginx)
+            configure_nginx
+            ;;
+        apache)
+            configure_apache
+            ;;
+        cloudflared)
+            configure_cloudflared
+            ;;
+    esac
     
-    # Create and enable services
-    create_services
+    # Configure SSL if requested
+    if [ "$USE_SSL" = true ]; then
+        configure_ssl
+    fi
     
-    # Display completion message
-    display_completion
+    # Create services
+    if [ "$SERVICE_MANAGER" == "systemd" ]; then
+        create_systemd_services
+    fi
     
-    log_message "Installation completed successfully"
+    # Verify installation
+    verify_installation
+    
+    # Display summary
+    display_summary
+    
+    log "Installation completed successfully"
 }
 
 # Run main function
