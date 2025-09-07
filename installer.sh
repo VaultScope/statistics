@@ -1186,26 +1186,26 @@ uninstall_vaultscope() {
 }
 
 show_menu() {
-    echo
-    echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║           VaultScope Statistics Installer               ║${NC}"
-    echo -e "${CYAN}║                 Version $SCRIPT_VERSION                        ║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
-    echo
-    echo -e "${YELLOW}Installation Options:${NC}"
-    echo "  1. Install Client only (Dashboard)"
-    echo "  2. Install Server only (Monitoring Agent)"
-    echo "  3. Install Both (Recommended)"
-    echo "  4. Install with Reverse Proxy"
-    echo "  5. Uninstall"
-    echo "  6. Exit"
-    echo
+    echo >&2
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}" >&2
+    echo -e "${CYAN}║           VaultScope Statistics Installer               ║${NC}" >&2
+    echo -e "${CYAN}║                 Version $SCRIPT_VERSION                        ║${NC}" >&2
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}" >&2
+    echo >&2
+    echo -e "${YELLOW}Installation Options:${NC}" >&2
+    echo "  1. Install Client only (Dashboard)" >&2
+    echo "  2. Install Server only (Monitoring Agent)" >&2
+    echo "  3. Install Both (Recommended)" >&2
+    echo "  4. Install with Reverse Proxy" >&2
+    echo "  5. Uninstall" >&2
+    echo "  6. Exit" >&2
+    echo >&2
     
     local choice=""
     while [[ ! "$choice" =~ ^[1-6]$ ]]; do
-        read -p "Enter your choice (1-6): " choice
+        read -p "Enter your choice (1-6): " choice >&2
         if [[ ! "$choice" =~ ^[1-6]$ ]]; then
-            echo -e "${RED}Invalid choice. Please enter a number between 1 and 6.${NC}"
+            echo -e "${RED}Invalid choice. Please enter a number between 1 and 6.${NC}" >&2
         fi
     done
     echo "$choice"
