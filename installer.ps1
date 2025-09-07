@@ -5,16 +5,20 @@ param(
     [switch]$Uninstall,
     [switch]$Silent,
     [switch]$ClientOnly,
-    [switch]$ServerOnly
+    [switch]$ServerOnly,
+    [string]$Proxy,
+    [string]$Domain
 )
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = 'SilentlyContinue'
-$Script:Version = "2.0.0"
+$Script:Version = "3.0.0"
 $Script:LogFile = "$env:TEMP\vaultscope-install-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
 $Script:ConfigDir = "$env:ProgramData\VaultScope"
 $Script:ConfigFile = "$Script:ConfigDir\statistics.json"
-$Script:GitHubRepo = "https://github.com/VaultScope/statistics.git"
+$Script:GitHubRepo = "https://github.com/VaultScope/statistics"
+$Script:GitHubRaw = "https://raw.githubusercontent.com/VaultScope/statistics/main"
+$Script:CLIUrl = "$Script:GitHubRaw/cli.js"
 
 function Write-Log {
     param(
@@ -108,8 +112,7 @@ function Install-NodeJS {
     try {
         Write-Log "Downloading Node.js from $nodeUrl"
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        $webClient = New-Object System.Net.WebClient
-        $webClient.DownloadFile($nodeUrl, $nodeMsi)
+        Invoke-WebRequest -Uri $nodeUrl -OutFile $nodeMsi -UseBasicParsing
         
         if (-not (Test-Path $nodeMsi)) {
             throw "Failed to download Node.js installer"
@@ -121,8 +124,7 @@ function Install-NodeJS {
             "`"$nodeMsi`"",
             "/quiet",
             "/norestart",
-            "ADDLOCAL=ALL",
-            "TARGETDIR=`"$env:ProgramFiles\nodejs`""
+            "ADDLOCAL=ALL"
         )
         
         $process = Start-Process msiexec.exe -ArgumentList $arguments -Wait -PassThru -NoNewWindow
@@ -135,12 +137,6 @@ function Install-NodeJS {
         
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + 
                     [System.Environment]::GetEnvironmentVariable("Path","User")
-        
-        $nodeCheck = Get-Command node -ErrorAction SilentlyContinue
-        if (-not $nodeCheck) {
-            $env:Path += ";$env:ProgramFiles\nodejs"
-            [System.Environment]::SetEnvironmentVariable("Path", $env:Path, "Process")
-        }
         
         Write-Log "Node.js installed successfully" "SUCCESS"
         return $true
@@ -172,8 +168,7 @@ function Install-Git {
     try {
         Write-Log "Downloading Git from $gitUrl"
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        $webClient = New-Object System.Net.WebClient
-        $webClient.DownloadFile($gitUrl, $gitExe)
+        Invoke-WebRequest -Uri $gitUrl -OutFile $gitExe -UseBasicParsing
         
         if (-not (Test-Path $gitExe)) {
             throw "Failed to download Git installer"
@@ -184,10 +179,7 @@ function Install-Git {
             "/VERYSILENT",
             "/NORESTART",
             "/NOCANCEL",
-            "/SP-",
-            "/CLOSEAPPLICATIONS",
-            "/RESTARTAPPLICATIONS",
-            "/COMPONENTS=icons,ext\reg\shellhere,assoc,assoc_sh"
+            "/SP-"
         )
         
         $process = Start-Process $gitExe -ArgumentList $arguments -Wait -PassThru -NoNewWindow
@@ -200,7 +192,6 @@ function Install-Git {
         
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + 
                     [System.Environment]::GetEnvironmentVariable("Path","User")
-        [System.Environment]::SetEnvironmentVariable("Path", $env:Path, "Process")
         
         Write-Log "Git installed successfully" "SUCCESS"
         return $true
@@ -241,6 +232,56 @@ function Install-PM2 {
     }
 }
 
+function Download-FromGitHub {
+    param(
+        [string]$Component,
+        [string]$TargetDir
+    )
+    
+    Write-Log "Downloading $Component from GitHub..."
+    
+    if ($Component -eq "cli") {
+        try {
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            Invoke-WebRequest -Uri $Script:CLIUrl -OutFile "$TargetDir\cli.js" -UseBasicParsing
+            return $true
+        } catch {
+            Write-Log "Failed to download CLI: $_" "WARNING"
+            return $false
+        }
+    }
+    
+    $tempDir = "$env:TEMP\vaultscope-$(Get-Random)"
+    
+    try {
+        $archiveUrl = "$Script:GitHubRepo/archive/refs/heads/main.zip"
+        $archivePath = "$tempDir\repo.zip"
+        
+        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+        
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -Uri $archiveUrl -OutFile $archivePath -UseBasicParsing
+        
+        Expand-Archive -Path $archivePath -DestinationPath $tempDir -Force
+        
+        $extractedDir = "$tempDir\statistics-main"
+        
+        if (Test-Path "$extractedDir\$Component") {
+            Copy-Item -Path "$extractedDir\$Component\*" -Destination $TargetDir -Recurse -Force
+            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+            return $true
+        }
+    } catch {
+        Write-Log "Failed to download from GitHub: $_" "WARNING"
+    }
+    
+    if (Test-Path $tempDir) {
+        Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    
+    return $false
+}
+
 function Setup-Component {
     param(
         [string]$ComponentPath,
@@ -254,31 +295,10 @@ function Setup-Component {
         New-Item -ItemType Directory -Path $ComponentPath -Force | Out-Null
     }
     
-    Set-Location $ComponentPath
-    
-    $tempDir = "$env:TEMP\vaultscope-$(Get-Random)"
-    $cloneSuccess = $false
-    
-    try {
-        Write-Log "Cloning repository..."
-        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+    if (-not (Download-FromGitHub -Component $ComponentName -TargetDir $ComponentPath)) {
+        Write-Log "Using fallback configuration for $ComponentName" "WARNING"
         
-        $gitOutput = & git clone --quiet --depth 1 $Script:GitHubRepo "$tempDir" 2>&1
-        if ($LASTEXITCODE -eq 0 -and (Test-Path "$tempDir\$ComponentName")) {
-            Write-Log "Repository cloned successfully"
-            Copy-Item -Path "$tempDir\$ComponentName\*" -Destination $ComponentPath -Recurse -Force
-            $cloneSuccess = $true
-        }
-    } catch {
-        Write-Log "Git clone failed: $_" "WARNING"
-    } finally {
-        if (Test-Path $tempDir) {
-            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
-        }
-    }
-    
-    if (-not $cloneSuccess) {
-        Write-Log "Repository not available, using fallback configuration" "WARNING"
+        Set-Location $ComponentPath
         
         if ($ComponentName -eq "server") {
             $packageJson = @{
@@ -362,26 +382,245 @@ app.listen(PORT, () => {
         }
     }
     
+    Set-Location $ComponentPath
+    
     Write-Log "Installing dependencies for $ComponentName..."
     
     try {
         $npmOutput = & npm install --production --no-optional --loglevel=error 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-Log "Some optional dependencies failed, retrying..." "WARNING"
-            $npmOutput = & npm install --production --no-optional 2>&1
+            $npmOutput = & npm install --production 2>&1
         }
     } catch {
         Write-Log "NPM install warning: $_" "WARNING"
     }
     
-    if (Test-Path "$ComponentPath\tsconfig.json") {
-        Write-Log "Building TypeScript for $ComponentName..."
+    if ((Test-Path "$ComponentPath\tsconfig.json") -or ($ComponentName -eq "client")) {
+        Write-Log "Building $ComponentName..."
         try {
             & npm run build 2>&1 | Out-Null
         } catch {
             Write-Log "Build warning: $_" "WARNING"
         }
     }
+    
+    return $true
+}
+
+function Create-ServiceScript {
+    param(
+        [string]$ServiceName,
+        [string]$ComponentPath,
+        [string]$StartCommand
+    )
+    
+    $serviceScript = "$InstallPath\bin\${ServiceName}-service.ps1"
+    $serviceBatch = "$InstallPath\bin\${ServiceName}-service.cmd"
+    
+    if (-not (Test-Path "$InstallPath\bin")) {
+        New-Item -ItemType Directory -Path "$InstallPath\bin" -Force | Out-Null
+    }
+    
+    $psContent = @"
+param(
+    [string]`$Action = "status"
+)
+
+`$ServiceName = "$ServiceName"
+`$ComponentPath = "$ComponentPath"
+`$PidFile = "`$env:TEMP\vaultscope-`$ServiceName.pid"
+`$LogFile = "`$env:TEMP\vaultscope-`$ServiceName.log"
+
+function Start-Service {
+    if (Test-Path `$PidFile) {
+        `$pid = Get-Content `$PidFile
+        if (Get-Process -Id `$pid -ErrorAction SilentlyContinue) {
+            Write-Host "`$ServiceName is already running (PID: `$pid)"
+            return
+        }
+    }
+    
+    Write-Host "Starting `$ServiceName..."
+    Set-Location `$ComponentPath
+    `$process = Start-Process -FilePath "cmd.exe" -ArgumentList "/c $StartCommand > `$LogFile 2>&1" -PassThru -WindowStyle Hidden
+    `$process.Id | Out-File -FilePath `$PidFile
+    Write-Host "`$ServiceName started (PID: `$(`$process.Id))"
+}
+
+function Stop-Service {
+    if (-not (Test-Path `$PidFile)) {
+        Write-Host "`$ServiceName is not running"
+        return
+    }
+    
+    `$pid = Get-Content `$PidFile
+    Write-Host "Stopping `$ServiceName..."
+    Stop-Process -Id `$pid -Force -ErrorAction SilentlyContinue
+    Remove-Item `$PidFile -Force
+    Write-Host "`$ServiceName stopped"
+}
+
+function Get-ServiceStatus {
+    if (Test-Path `$PidFile) {
+        `$pid = Get-Content `$PidFile
+        if (Get-Process -Id `$pid -ErrorAction SilentlyContinue) {
+            Write-Host "`$ServiceName is running (PID: `$pid)"
+        } else {
+            Write-Host "`$ServiceName is not running"
+            Remove-Item `$PidFile -Force -ErrorAction SilentlyContinue
+        }
+    } else {
+        Write-Host "`$ServiceName is not running"
+    }
+}
+
+switch (`$Action) {
+    "start" { Start-Service }
+    "stop" { Stop-Service }
+    "restart" { 
+        Stop-Service
+        Start-Sleep -Seconds 2
+        Start-Service
+    }
+    "status" { Get-ServiceStatus }
+    default { Write-Host "Usage: `$ServiceName-service.ps1 -Action {start|stop|restart|status}" }
+}
+"@
+    
+    $psContent | Out-File -FilePath $serviceScript -Encoding UTF8
+    
+    $batchContent = @"
+@echo off
+powershell.exe -ExecutionPolicy Bypass -File "$serviceScript" -Action %1
+"@
+    
+    $batchContent | Out-File -FilePath $serviceBatch -Encoding ASCII
+    
+    Write-Log "Service script created for $ServiceName" "SUCCESS"
+}
+
+function Install-NginxProxy {
+    Write-Log "Installing Nginx reverse proxy..."
+    
+    $nginxPath = "$env:ProgramFiles\nginx"
+    $nginxUrl = "https://nginx.org/download/nginx-1.24.0.zip"
+    $nginxZip = "$env:TEMP\nginx.zip"
+    
+    if (-not (Test-Path "$nginxPath\nginx.exe")) {
+        try {
+            Write-Log "Downloading Nginx..."
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            Invoke-WebRequest -Uri $nginxUrl -OutFile $nginxZip -UseBasicParsing
+            
+            Expand-Archive -Path $nginxZip -DestinationPath "$env:ProgramFiles" -Force
+            Move-Item "$env:ProgramFiles\nginx-*" $nginxPath -Force
+            Remove-Item $nginxZip -Force
+        } catch {
+            Write-Log "Failed to install Nginx: $_" "ERROR"
+            return $false
+        }
+    }
+    
+    if ([string]::IsNullOrEmpty($Domain)) {
+        $Domain = Read-Host "Enter domain name for reverse proxy"
+    }
+    
+    $nginxConf = @"
+worker_processes 1;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+    sendfile      on;
+    keepalive_timeout 65;
+
+    server {
+        listen 80;
+        server_name $Domain;
+
+        location / {
+            proxy_pass http://localhost:3000;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade `$http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host `$host;
+            proxy_cache_bypass `$http_upgrade;
+            proxy_set_header X-Real-IP `$remote_addr;
+            proxy_set_header X-Forwarded-For `$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto `$scheme;
+        }
+
+        location /api {
+            proxy_pass http://localhost:4000;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade `$http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host `$host;
+            proxy_cache_bypass `$http_upgrade;
+            proxy_set_header X-Real-IP `$remote_addr;
+            proxy_set_header X-Forwarded-For `$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto `$scheme;
+        }
+    }
+}
+"@
+    
+    $nginxConf | Out-File -FilePath "$nginxPath\conf\nginx.conf" -Encoding UTF8
+    
+    & "$nginxPath\nginx.exe" -s stop 2>$null
+    Start-Sleep -Seconds 1
+    & "$nginxPath\nginx.exe"
+    
+    Write-Log "Nginx reverse proxy configured for $Domain" "SUCCESS"
+    return $true
+}
+
+function Install-CloudflaredProxy {
+    Write-Log "Installing Cloudflare Tunnel..."
+    
+    $cloudflaredPath = "$env:ProgramFiles\Cloudflare"
+    $cloudflaredExe = "$cloudflaredPath\cloudflared.exe"
+    $cloudflaredUrl = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+    
+    if (-not (Test-Path $cloudflaredExe)) {
+        try {
+            Write-Log "Downloading cloudflared..."
+            New-Item -ItemType Directory -Path $cloudflaredPath -Force | Out-Null
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            Invoke-WebRequest -Uri $cloudflaredUrl -OutFile $cloudflaredExe -UseBasicParsing
+        } catch {
+            Write-Log "Failed to download cloudflared: $_" "ERROR"
+            return $false
+        }
+    }
+    
+    if ([string]::IsNullOrEmpty($Domain)) {
+        $Domain = Read-Host "Enter domain name for Cloudflare Tunnel"
+    }
+    
+    $tunnelConfig = @"
+tunnel: vaultscope-statistics
+credentials-file: $Script:ConfigDir\cloudflared-creds.json
+
+ingress:
+  - hostname: $Domain
+    service: http://localhost:3000
+  - hostname: api.$Domain
+    service: http://localhost:4000
+  - service: http_status:404
+"@
+    
+    $tunnelConfig | Out-File -FilePath "$Script:ConfigDir\cloudflared.yml" -Encoding UTF8
+    
+    Write-Log "Cloudflare Tunnel configured" "SUCCESS"
+    Write-Log "Run 'cloudflared tunnel login' to authenticate" "WARNING"
+    Write-Log "Then run 'cloudflared tunnel create vaultscope-statistics'" "WARNING"
+    Write-Log "Finally run 'cloudflared tunnel route dns vaultscope-statistics $Domain'" "WARNING"
     
     return $true
 }
@@ -404,6 +643,8 @@ NODE_ENV=production
 "@
     $envContent | Out-File -FilePath "$serverPath\.env" -Encoding UTF8
     
+    Create-ServiceScript -ServiceName "server" -ComponentPath $serverPath -StartCommand "node index.js"
+    
     Write-Log "Setting up PM2 service for server..."
     
     $entryPoint = if (Test-Path "$serverPath\dist\index.js") { 
@@ -411,7 +652,6 @@ NODE_ENV=production
     } elseif (Test-Path "$serverPath\index.js") { 
         "$serverPath\index.js" 
     } else { 
-        Write-Log "No server entry point found, using default" "WARNING"
         "$serverPath\index.js"
     }
     
@@ -421,14 +661,6 @@ NODE_ENV=production
         & pm2 save
     } catch {
         Write-Log "PM2 error: $_" "WARNING"
-    }
-    
-    try {
-        Write-Log "Installing PM2 as Windows service..."
-        Set-Location $serverPath
-        & pm2-service-install -n "VaultScope-Server" 2>&1 | Out-Null
-    } catch {
-        Write-Log "PM2 Windows service installation requires manual setup" "WARNING"
     }
     
     Write-Log "Server installed successfully!" "SUCCESS"
@@ -456,6 +688,8 @@ SESSION_SECRET=$(New-Guid)
 "@
     $envContent | Out-File -FilePath "$clientPath\.env.production" -Encoding UTF8
     
+    Create-ServiceScript -ServiceName "client" -ComponentPath $clientPath -StartCommand "npm run start"
+    
     Write-Log "Setting up PM2 service for client..."
     
     try {
@@ -478,13 +712,96 @@ function Install-CLI {
     $cliSource = "$InstallPath\cli.js"
     $cliBatch = "$InstallPath\vaultscope.cmd"
     
-    if (-not (Test-Path $cliSource)) {
-        if (Test-Path "$PSScriptRoot\cli.js") {
-            Copy-Item "$PSScriptRoot\cli.js" $cliSource -Force
-        } else {
-            Write-Log "CLI script not found, skipping CLI installation" "WARNING"
-            return
-        }
+    if (-not (Download-FromGitHub -Component "cli" -TargetDir $InstallPath)) {
+        Write-Log "Creating fallback CLI..." "WARNING"
+        
+        $cliContent = @'
+#!/usr/bin/env node
+
+const { exec } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+
+const CONFIG_FILE = process.platform === 'win32' 
+    ? path.join(process.env.ProgramData, 'VaultScope', 'statistics.json')
+    : '/etc/vaultscope/statistics.json';
+
+function getConfig() {
+    try {
+        return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+    } catch (err) {
+        console.error('Configuration not found. Is VaultScope installed?');
+        process.exit(1);
+    }
+}
+
+function showHelp() {
+    console.log(`
+VaultScope CLI
+
+Usage: vaultscope [COMMAND]
+
+Commands:
+  status      Show service status
+  start       Start all services
+  stop        Stop all services
+  restart     Restart all services
+  logs        View service logs
+  statistics  Show installation info
+  help        Show this help
+
+`);
+}
+
+const command = process.argv[2] || 'help';
+const config = command !== 'help' ? getConfig() : null;
+
+switch (command) {
+    case 'status':
+        exec('pm2 list', (err, stdout) => console.log(stdout));
+        break;
+    
+    case 'start':
+        exec('pm2 start all', (err) => {
+            console.log(err ? 'Failed to start services' : 'Services started');
+        });
+        break;
+    
+    case 'stop':
+        exec('pm2 stop all', (err) => {
+            console.log(err ? 'Failed to stop services' : 'Services stopped');
+        });
+        break;
+    
+    case 'restart':
+        exec('pm2 restart all', (err) => {
+            console.log(err ? 'Failed to restart services' : 'Services restarted');
+        });
+        break;
+    
+    case 'logs':
+        exec('pm2 logs', (err, stdout) => console.log(stdout));
+        break;
+    
+    case 'statistics':
+        console.log('VaultScope Statistics Installation:');
+        console.log(JSON.stringify(config, null, 2));
+        break;
+    
+    case 'help':
+    case '-h':
+    case '--help':
+        showHelp();
+        break;
+    
+    default:
+        console.error(`Unknown command: ${command}`);
+        showHelp();
+        process.exit(1);
+}
+'@
+        
+        $cliContent | Out-File -FilePath $cliSource -Encoding UTF8
     }
     
     if (Test-Path $cliSource) {
@@ -510,7 +827,9 @@ function Save-Configuration {
         [bool]$HasClient,
         [string]$ServerPath,
         [string]$ClientPath,
-        [string]$ApiKeyFile
+        [string]$ApiKeyFile,
+        [string]$ProxyType,
+        [string]$ProxyDomain
     )
     
     Write-Log "Saving configuration..."
@@ -530,6 +849,9 @@ function Save-Configuration {
         platform = "windows"
         components = $components
         serviceManager = "pm2"
+        proxyEnabled = ($ProxyType -ne $null -and $ProxyType -ne "")
+        proxyType = $ProxyType
+        proxyDomain = $ProxyDomain
         server = @{
             path = $ServerPath
             url = "http://localhost:4000"
@@ -555,6 +877,12 @@ function Uninstall-VaultScope {
     & pm2 delete vaultscope-client 2>$null
     & pm2 save 2>$null
     
+    Write-Log "Stopping Nginx if running..."
+    $nginxPath = "$env:ProgramFiles\nginx"
+    if (Test-Path "$nginxPath\nginx.exe") {
+        & "$nginxPath\nginx.exe" -s stop 2>$null
+    }
+    
     Write-Log "Removing installation directory..."
     if (Test-Path $InstallPath) {
         Remove-Item -Path $InstallPath -Recurse -Force -ErrorAction SilentlyContinue
@@ -565,6 +893,11 @@ function Uninstall-VaultScope {
         Remove-Item -Path $Script:ConfigFile -Force -ErrorAction SilentlyContinue
     }
     
+    Write-Log "Removing from PATH..."
+    $currentPath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    $newPath = ($currentPath -split ';' | Where-Object { $_ -notlike "*$InstallPath*" }) -join ';'
+    [Environment]::SetEnvironmentVariable("Path", $newPath, "Machine")
+    
     Write-Log "Uninstallation complete" "SUCCESS"
 }
 
@@ -572,25 +905,88 @@ function Show-Menu {
     Clear-Host
     Write-Host "╔══════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
     Write-Host "║           VaultScope Statistics Installer               ║" -ForegroundColor Cyan
-    Write-Host "║                 Version $Script:Version - Production              ║" -ForegroundColor Cyan
+    Write-Host "║                 Version $Script:Version                        ║" -ForegroundColor Cyan
     Write-Host "╚══════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "Installation Options:" -ForegroundColor Yellow
-    Write-Host "1. Install Client only (Dashboard)"
-    Write-Host "2. Install Server only (Monitoring Agent)"
-    Write-Host "3. Install Both (Recommended)"
-    Write-Host "4. Uninstall"
-    Write-Host "5. Exit"
     Write-Host ""
+    Write-Host "  1) Install Client only (Dashboard)"
+    Write-Host "  2) Install Server only (Monitoring Agent)"
+    Write-Host "  3) Install Both (Recommended)"
+    Write-Host "  4) Install with Reverse Proxy"
+    Write-Host "  5) Uninstall"
+    Write-Host "  6) Exit"
+    Write-Host ""
+    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
     
     $choice = ""
-    while ($choice -notmatch '^[1-5]$') {
-        $choice = Read-Host "Enter your choice (1-5)"
-        if ($choice -notmatch '^[1-5]$') {
-            Write-Host "Invalid choice. Please enter a number between 1 and 5." -ForegroundColor Red
+    $validChoice = $false
+    
+    while (-not $validChoice) {
+        Write-Host -NoNewline "Enter your choice [1-6]: "
+        $choice = Read-Host
+        
+        if ($choice -match '^[1-6]$') {
+            $validChoice = $true
+            Write-Host ""
+            Write-Host "✓ You selected option $choice" -ForegroundColor Green
+            Start-Sleep -Milliseconds 500
+        } elseif ([string]::IsNullOrWhiteSpace($choice)) {
+            Write-Host "✗ No input provided. Please enter a number between 1 and 6." -ForegroundColor Red
+        } else {
+            Write-Host "✗ Invalid choice: '$choice'. Please enter a number between 1 and 6." -ForegroundColor Red
         }
     }
+    
     return $choice
+}
+
+function Show-ProxyMenu {
+    Clear-Host
+    Write-Host "╔══════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+    Write-Host "║              Reverse Proxy Configuration                ║" -ForegroundColor Cyan
+    Write-Host "╚══════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Select Reverse Proxy Type:" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  1) Nginx"
+    Write-Host "  2) Cloudflare Tunnel"
+    Write-Host "  3) Skip proxy setup"
+    Write-Host ""
+    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+    
+    $choice = ""
+    $validChoice = $false
+    
+    while (-not $validChoice) {
+        Write-Host -NoNewline "Enter your choice [1-3]: "
+        $choice = Read-Host
+        
+        switch ($choice) {
+            "1" {
+                $validChoice = $true
+                Write-Host "✓ Selected: Nginx" -ForegroundColor Green
+                return "nginx"
+            }
+            "2" {
+                $validChoice = $true
+                Write-Host "✓ Selected: Cloudflare Tunnel" -ForegroundColor Green
+                return "cloudflared"
+            }
+            "3" {
+                $validChoice = $true
+                Write-Host "✓ Skipping proxy setup" -ForegroundColor Green
+                return ""
+            }
+            default {
+                if ([string]::IsNullOrWhiteSpace($choice)) {
+                    Write-Host "✗ No input provided. Please enter a number between 1 and 3." -ForegroundColor Red
+                } else {
+                    Write-Host "✗ Invalid choice: '$choice'. Please enter a number between 1 and 3." -ForegroundColor Red
+                }
+            }
+        }
+    }
 }
 
 try {
@@ -636,6 +1032,9 @@ try {
     }
     
     $success = $false
+    $proxyType = $Proxy
+    $proxyDomain = $Domain
+    
     switch ($installChoice) {
         "1" { 
             $success = Install-Client 
@@ -648,11 +1047,27 @@ try {
                 $success = Install-Client
             }
         }
-        "4" { 
+        "4" {
+            if (Install-Server) {
+                if (Install-Client) {
+                    $success = $true
+                    if ([string]::IsNullOrEmpty($proxyType)) {
+                        $proxyType = Show-ProxyMenu
+                    }
+                    if (-not [string]::IsNullOrEmpty($proxyType)) {
+                        switch ($proxyType) {
+                            "nginx" { Install-NginxProxy }
+                            "cloudflared" { Install-CloudflaredProxy }
+                        }
+                    }
+                }
+            }
+        }
+        "5" { 
             Uninstall-VaultScope
             exit 0
         }
-        "5" { 
+        "6" { 
             Write-Log "Installation cancelled" "INFO"
             exit 0
         }
@@ -672,7 +1087,9 @@ try {
             -HasClient $hasClient `
             -ServerPath "$InstallPath\server" `
             -ClientPath "$InstallPath\client" `
-            -ApiKeyFile "$InstallPath\server-api-key.txt"
+            -ApiKeyFile "$InstallPath\server-api-key.txt" `
+            -ProxyType $proxyType `
+            -ProxyDomain $proxyDomain
         
         Write-Host ""
         Write-Host "═══════════════════════════════════════════════════════════" -ForegroundColor Green
@@ -683,11 +1100,18 @@ try {
         Write-Log "🎉 VaultScope CLI is now available!" "SUCCESS"
         Write-Host ""
         Write-Host "Quick Start Commands:" -ForegroundColor Cyan
-        Write-Host "  vaultscope -h              # Show help"
+        Write-Host "  vaultscope help            # Show help"
         Write-Host "  vaultscope statistics      # Show installation info"
         Write-Host "  vaultscope status          # Check service status"
+        Write-Host "  vaultscope start           # Start all services"
+        Write-Host "  vaultscope stop            # Stop all services"
+        Write-Host "  vaultscope restart         # Restart all services"
         Write-Host "  vaultscope logs            # View logs"
-        Write-Host "  vaultscope restart         # Restart services"
+        Write-Host ""
+        
+        Write-Host "Service Control Scripts:" -ForegroundColor Cyan
+        Write-Host "  $InstallPath\bin\server-service.cmd {start|stop|restart|status}"
+        Write-Host "  $InstallPath\bin\client-service.cmd {start|stop|restart|status}"
         Write-Host ""
         
         Write-Log "PM2 Commands:" "INFO"
@@ -696,6 +1120,20 @@ try {
         Write-Host "  pm2 logs              - View logs"
         Write-Host "  pm2 monit             - Monitor services"
         Write-Host ""
+        
+        if (-not [string]::IsNullOrEmpty($proxyType) -and -not [string]::IsNullOrEmpty($proxyDomain)) {
+            Write-Host "Reverse Proxy Configuration:" -ForegroundColor Cyan
+            Write-Host "  Type: $proxyType"
+            Write-Host "  Domain: $proxyDomain"
+            if ($proxyType -eq "nginx") {
+                Write-Host "  Client URL: http://$proxyDomain"
+                Write-Host "  API URL: http://$proxyDomain/api"
+            } elseif ($proxyType -eq "cloudflared") {
+                Write-Host "  Client URL: https://$proxyDomain"
+                Write-Host "  API URL: https://api.$proxyDomain"
+            }
+            Write-Host ""
+        }
         
         if (Test-Path "$InstallPath\server-api-key.txt") {
             Write-Log "Server API Key saved to: $InstallPath\server-api-key.txt" "WARNING"

@@ -3,18 +3,20 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-readonly SCRIPT_VERSION="2.0.0"
+readonly SCRIPT_VERSION="3.0.0"
 readonly SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly LOG_FILE="/tmp/vaultscope-install-$(date +%Y%m%d-%H%M%S).log"
-readonly GITHUB_REPO="https://github.com/VaultScope/statistics.git"
+readonly GITHUB_REPO="https://github.com/VaultScope/statistics"
 readonly CONFIG_DIR="/etc/vaultscope"
 readonly CONFIG_FILE="$CONFIG_DIR/statistics.json"
+readonly CLI_URL="https://raw.githubusercontent.com/VaultScope/statistics/main/cli.js"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
 NC='\033[0m'
 
 INSTALL_PATH=""
@@ -22,6 +24,9 @@ UNINSTALL=false
 SILENT=false
 CLIENT_ONLY=false
 SERVER_ONLY=false
+USE_PROXY=false
+PROXY_TYPE=""
+PROXY_DOMAIN=""
 OS=""
 DISTRO=""
 PKG_MANAGER=""
@@ -78,12 +83,14 @@ OPTIONS:
     -s, --silent            Silent installation
     -c, --client-only       Install client only
     -S, --server-only       Install server only
+    --proxy TYPE            Setup reverse proxy (nginx|cloudflared)
+    --domain DOMAIN         Domain for reverse proxy
 
 EXAMPLES:
     $SCRIPT_NAME                    # Interactive installation
     $SCRIPT_NAME --path /opt/vs     # Install to specific path
     $SCRIPT_NAME --uninstall        # Remove installation
-    $SCRIPT_NAME --silent           # Non-interactive install
+    $SCRIPT_NAME --proxy nginx --domain stats.example.com
 
 EOF
 }
@@ -118,6 +125,15 @@ parse_args() {
             -S|--server-only)
                 SERVER_ONLY=true
                 shift
+                ;;
+            --proxy)
+                USE_PROXY=true
+                PROXY_TYPE="$2"
+                shift 2
+                ;;
+            --domain)
+                PROXY_DOMAIN="$2"
+                shift 2
                 ;;
             *)
                 error_exit "Unknown option: $1"
@@ -386,6 +402,46 @@ install_pm2() {
     log "SUCCESS" "PM2 installed successfully"
 }
 
+download_from_github() {
+    local component="$1"
+    local target_dir="$2"
+    
+    log "INFO" "Downloading $component from GitHub..."
+    
+    TEMP_DIR="$(mktemp -d)"
+    
+    if [[ "$component" == "cli" ]]; then
+        curl -fsSL "$CLI_URL" -o "$target_dir/cli.js" 2>/dev/null || {
+            log "WARNING" "Failed to download CLI from GitHub"
+            return 1
+        }
+        chmod +x "$target_dir/cli.js"
+        return 0
+    fi
+    
+    local archive_url="${GITHUB_REPO}/archive/refs/heads/main.tar.gz"
+    
+    if curl -fsSL "$archive_url" -o "$TEMP_DIR/repo.tar.gz" 2>/dev/null; then
+        tar -xzf "$TEMP_DIR/repo.tar.gz" -C "$TEMP_DIR" 2>/dev/null || {
+            log "WARNING" "Failed to extract repository archive"
+            rm -rf "$TEMP_DIR"
+            return 1
+        }
+        
+        local extracted_dir="$TEMP_DIR/statistics-main"
+        
+        if [[ -d "$extracted_dir/$component" ]]; then
+            cp -r "$extracted_dir/$component/"* "$target_dir/" 2>/dev/null || true
+            cp -r "$extracted_dir/$component/".* "$target_dir/" 2>/dev/null || true
+            rm -rf "$TEMP_DIR"
+            return 0
+        fi
+    fi
+    
+    rm -rf "$TEMP_DIR"
+    return 1
+}
+
 setup_component() {
     local component_path="$1"
     local component_name="$2"
@@ -394,22 +450,11 @@ setup_component() {
     log "INFO" "Setting up $component_name..."
     
     mkdir -p "$component_path"
-    cd "$component_path"
     
-    TEMP_DIR="$(mktemp -d)"
-    
-    local clone_success=false
-    if git clone --quiet --depth 1 "$GITHUB_REPO" "$TEMP_DIR" 2>/dev/null; then
-        if [[ -d "$TEMP_DIR/$component_name" ]]; then
-            log "INFO" "Repository cloned successfully"
-            cp -r "$TEMP_DIR/$component_name/"* "$component_path/" 2>/dev/null || true
-            cp -r "$TEMP_DIR/$component_name/".* "$component_path/" 2>/dev/null || true
-            clone_success=true
-        fi
-    fi
-    
-    if [[ "$clone_success" == "false" ]]; then
-        log "WARNING" "Repository not available, using fallback configuration"
+    if ! download_from_github "$component_name" "$component_path"; then
+        log "WARNING" "Using fallback configuration for $component_name"
+        
+        cd "$component_path"
         
         if [[ "$component_name" == "server" ]]; then
             cat > package.json << 'EOF'
@@ -491,13 +536,9 @@ EOF
         fi
     fi
     
-    rm -rf "$TEMP_DIR" 2>/dev/null || true
+    cd "$component_path"
     
     log "INFO" "Installing dependencies for $component_name..."
-    
-    if [[ "$component_name" == "server" ]]; then
-        sed -i.bak '/"cap":/d' package.json 2>/dev/null && rm package.json.bak 2>/dev/null || true
-    fi
     
     npm install --production --no-optional --loglevel=error >/dev/null 2>&1 || \
     npm install --production --no-optional >/dev/null 2>&1 || \
@@ -506,9 +547,84 @@ EOF
     if [[ -f "tsconfig.json" ]] || [[ -f "index.ts" ]]; then
         log "INFO" "Building TypeScript for $component_name..."
         npm run build >/dev/null 2>&1 || true
+    elif [[ "$component_name" == "client" ]] && [[ -f "package.json" ]]; then
+        log "INFO" "Building Next.js application..."
+        npm run build >/dev/null 2>&1 || true
     fi
     
     return 0
+}
+
+create_service_script() {
+    local service_name="$1"
+    local component_path="$2"
+    local start_command="$3"
+    
+    local service_script="$INSTALL_PATH/bin/${service_name}-service.sh"
+    mkdir -p "$INSTALL_PATH/bin"
+    
+    cat > "$service_script" << EOF
+#!/bin/bash
+
+SERVICE_NAME="$service_name"
+COMPONENT_PATH="$component_path"
+PID_FILE="/var/run/\${SERVICE_NAME}.pid"
+LOG_FILE="/var/log/\${SERVICE_NAME}.log"
+
+start() {
+    if [[ -f "\$PID_FILE" ]] && kill -0 \$(cat "\$PID_FILE") 2>/dev/null; then
+        echo "\$SERVICE_NAME is already running"
+        return 1
+    fi
+    
+    echo "Starting \$SERVICE_NAME..."
+    cd "\$COMPONENT_PATH"
+    nohup $start_command >> "\$LOG_FILE" 2>&1 &
+    echo \$! > "\$PID_FILE"
+    echo "\$SERVICE_NAME started"
+}
+
+stop() {
+    if [[ ! -f "\$PID_FILE" ]]; then
+        echo "\$SERVICE_NAME is not running"
+        return 1
+    fi
+    
+    echo "Stopping \$SERVICE_NAME..."
+    kill \$(cat "\$PID_FILE") 2>/dev/null
+    rm -f "\$PID_FILE"
+    echo "\$SERVICE_NAME stopped"
+}
+
+restart() {
+    stop
+    sleep 2
+    start
+}
+
+status() {
+    if [[ -f "\$PID_FILE" ]] && kill -0 \$(cat "\$PID_FILE") 2>/dev/null; then
+        echo "\$SERVICE_NAME is running (PID: \$(cat "\$PID_FILE"))"
+    else
+        echo "\$SERVICE_NAME is not running"
+        rm -f "\$PID_FILE" 2>/dev/null
+    fi
+}
+
+case "\$1" in
+    start) start ;;
+    stop) stop ;;
+    restart) restart ;;
+    status) status ;;
+    *) echo "Usage: \$0 {start|stop|restart|status}" ;;
+esac
+EOF
+    
+    chmod +x "$service_script"
+    
+    if [[ "$OS" == "linux" ]]; then
+        ln -sf "$service_script" "/usr/local/bin/vaultscope-${service_name}" 2>/dev/null || true
+    fi
 }
 
 create_systemd_service() {
@@ -525,12 +641,10 @@ create_systemd_service() {
     
     local service_user="nobody"
     if [[ "$EUID" -eq 0 ]]; then
-        if id "vaultscope" >/dev/null 2>&1; then
-            service_user="vaultscope"
-        else
+        if ! id "vaultscope" >/dev/null 2>&1; then
             useradd -r -s /bin/false vaultscope 2>/dev/null || true
-            service_user="vaultscope"
         fi
+        service_user="vaultscope"
         chown -R "$service_user:$service_user" "$working_dir" 2>/dev/null || true
     else
         service_user="$(whoami)"
@@ -566,6 +680,159 @@ EOF
     log "SUCCESS" "Service $service_name created and started"
 }
 
+create_launchd_service() {
+    local service_name="$1"
+    local description="$2"
+    local exec_command="$3"
+    local working_dir="$4"
+    
+    if [[ "$OS" != "macos" ]]; then
+        return 0
+    fi
+    
+    local plist_file="$HOME/Library/LaunchAgents/com.vaultscope.$service_name.plist"
+    
+    mkdir -p "$HOME/Library/LaunchAgents"
+    
+    cat > "$plist_file" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.vaultscope.$service_name</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$(echo $exec_command | cut -d' ' -f1)</string>
+        $(echo $exec_command | cut -d' ' -f2- | tr ' ' '\n' | sed 's/.*/<string>&<\/string>/')
+    </array>
+    <key>WorkingDirectory</key>
+    <string>$working_dir</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/$service_name.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/$service_name.error.log</string>
+</dict>
+</plist>
+EOF
+    
+    launchctl load "$plist_file" 2>/dev/null || true
+    
+    log "SUCCESS" "LaunchAgent $service_name created"
+}
+
+install_nginx_proxy() {
+    log "INFO" "Installing nginx reverse proxy..."
+    
+    if ! command_exists nginx; then
+        case "$OS" in
+            linux)
+                install_package "nginx"
+                ;;
+            macos)
+                brew install nginx >/dev/null 2>&1
+                ;;
+        esac
+    fi
+    
+    if [[ -z "$PROXY_DOMAIN" ]]; then
+        read -p "Enter domain name for reverse proxy: " PROXY_DOMAIN
+    fi
+    
+    local nginx_conf="/etc/nginx/sites-available/vaultscope"
+    [[ "$OS" == "macos" ]] && nginx_conf="/usr/local/etc/nginx/servers/vaultscope.conf"
+    
+    cat > "$nginx_conf" << EOF
+server {
+    listen 80;
+    server_name $PROXY_DOMAIN;
+
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    location /api {
+        proxy_pass http://localhost:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOF
+    
+    if [[ "$OS" == "linux" ]]; then
+        ln -sf "$nginx_conf" /etc/nginx/sites-enabled/vaultscope 2>/dev/null || true
+        nginx -t && systemctl reload nginx
+    else
+        brew services restart nginx
+    fi
+    
+    log "SUCCESS" "Nginx reverse proxy configured for $PROXY_DOMAIN"
+}
+
+install_cloudflared_proxy() {
+    log "INFO" "Installing Cloudflare Tunnel..."
+    
+    if ! command_exists cloudflared; then
+        case "$OS" in
+            linux)
+                case "$DISTRO" in
+                    ubuntu|debian|raspbian)
+                        wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+                        dpkg -i cloudflared-linux-amd64.deb >/dev/null 2>&1
+                        rm cloudflared-linux-amd64.deb
+                        ;;
+                    *)
+                        wget -q -O /usr/local/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+                        chmod +x /usr/local/bin/cloudflared
+                        ;;
+                esac
+                ;;
+            macos)
+                brew install cloudflared >/dev/null 2>&1
+                ;;
+        esac
+    fi
+    
+    log "INFO" "Configuring Cloudflare Tunnel..."
+    
+    local tunnel_config="$CONFIG_DIR/cloudflared.yml"
+    
+    cat > "$tunnel_config" << EOF
+tunnel: vaultscope-statistics
+credentials-file: $CONFIG_DIR/cloudflared-creds.json
+
+ingress:
+  - hostname: ${PROXY_DOMAIN:-localhost}
+    service: http://localhost:3000
+  - hostname: api.${PROXY_DOMAIN:-localhost}
+    service: http://localhost:4000
+  - service: http_status:404
+EOF
+    
+    log "INFO" "Cloudflare Tunnel configured"
+    log "WARNING" "Run 'cloudflared tunnel login' to authenticate"
+    log "WARNING" "Then run 'cloudflared tunnel create vaultscope-statistics'"
+    log "WARNING" "Finally run 'cloudflared tunnel route dns vaultscope-statistics $PROXY_DOMAIN'"
+}
+
 install_server() {
     local server_path="$INSTALL_PATH/server"
     
@@ -598,9 +865,17 @@ EOF
         entry_point="$server_path/index.js"
     fi
     
+    create_service_script "server" "$server_path" "$(command -v node) $entry_point"
+    
     if [[ "$OS" == "linux" ]] && [[ "$INIT_SYSTEM" == "systemd" ]]; then
         create_systemd_service \
             "vaultscope-server" \
+            "VaultScope Statistics Server" \
+            "$(command -v node) $entry_point" \
+            "$server_path"
+    elif [[ "$OS" == "macos" ]]; then
+        create_launchd_service \
+            "server" \
             "VaultScope Statistics Server" \
             "$(command -v node) $entry_point" \
             "$server_path"
@@ -648,9 +923,17 @@ NODE_ENV=production
 SESSION_SECRET=$session_secret
 EOF
     
+    create_service_script "client" "$client_path" "$(command -v npm) run start"
+    
     if [[ "$OS" == "linux" ]] && [[ "$INIT_SYSTEM" == "systemd" ]]; then
         create_systemd_service \
             "vaultscope-client" \
+            "VaultScope Statistics Client" \
+            "$(command -v npm) run start" \
+            "$client_path"
+    elif [[ "$OS" == "macos" ]]; then
+        create_launchd_service \
+            "client" \
             "VaultScope Statistics Client" \
             "$(command -v npm) run start" \
             "$client_path"
@@ -669,29 +952,130 @@ EOF
 install_cli() {
     log "INFO" "Installing VaultScope CLI..."
     
-    local cli_source="$INSTALL_PATH/cli.js"
+    local cli_path="$INSTALL_PATH/cli.js"
     
-    if [[ ! -f "$cli_source" ]]; then
-        if [[ -f "$SCRIPT_DIR/cli.js" ]]; then
-            cp "$SCRIPT_DIR/cli.js" "$cli_source" 2>/dev/null || true
-        else
-            log "WARNING" "CLI script not found, skipping CLI installation"
-            return 0
-        fi
+    if ! download_from_github "cli" "$INSTALL_PATH"; then
+        log "WARNING" "Could not download CLI from GitHub"
+        
+        cat > "$cli_path" << 'EOF'
+#!/usr/bin/env node
+
+const { exec } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+
+const CONFIG_FILE = '/etc/vaultscope/statistics.json';
+
+function getConfig() {
+    try {
+        return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+    } catch (err) {
+        console.error('Configuration not found. Is VaultScope installed?');
+        process.exit(1);
+    }
+}
+
+function showHelp() {
+    console.log(`
+VaultScope CLI
+
+Usage: vaultscope [COMMAND]
+
+Commands:
+  status      Show service status
+  start       Start all services
+  stop        Stop all services
+  restart     Restart all services
+  logs        View service logs
+  statistics  Show installation info
+  help        Show this help
+
+`);
+}
+
+const command = process.argv[2] || 'help';
+const config = command !== 'help' ? getConfig() : null;
+
+switch (command) {
+    case 'status':
+        if (config.serviceManager === 'systemd') {
+            exec('systemctl status vaultscope-*', (err, stdout) => console.log(stdout));
+        } else {
+            exec('pm2 list', (err, stdout) => console.log(stdout));
+        }
+        break;
+    
+    case 'start':
+        if (config.serviceManager === 'systemd') {
+            exec('sudo systemctl start vaultscope-server vaultscope-client', (err) => {
+                console.log(err ? 'Failed to start services' : 'Services started');
+            });
+        } else {
+            exec('pm2 start all', (err) => {
+                console.log(err ? 'Failed to start services' : 'Services started');
+            });
+        }
+        break;
+    
+    case 'stop':
+        if (config.serviceManager === 'systemd') {
+            exec('sudo systemctl stop vaultscope-server vaultscope-client', (err) => {
+                console.log(err ? 'Failed to stop services' : 'Services stopped');
+            });
+        } else {
+            exec('pm2 stop all', (err) => {
+                console.log(err ? 'Failed to stop services' : 'Services stopped');
+            });
+        }
+        break;
+    
+    case 'restart':
+        if (config.serviceManager === 'systemd') {
+            exec('sudo systemctl restart vaultscope-server vaultscope-client', (err) => {
+                console.log(err ? 'Failed to restart services' : 'Services restarted');
+            });
+        } else {
+            exec('pm2 restart all', (err) => {
+                console.log(err ? 'Failed to restart services' : 'Services restarted');
+            });
+        }
+        break;
+    
+    case 'logs':
+        if (config.serviceManager === 'systemd') {
+            exec('sudo journalctl -u vaultscope-* -f', (err, stdout) => console.log(stdout));
+        } else {
+            exec('pm2 logs', (err, stdout) => console.log(stdout));
+        }
+        break;
+    
+    case 'statistics':
+        console.log('VaultScope Statistics Installation:');
+        console.log(JSON.stringify(config, null, 2));
+        break;
+    
+    case 'help':
+    case '-h':
+    case '--help':
+        showHelp();
+        break;
+    
+    default:
+        console.error(`Unknown command: ${command}`);
+        showHelp();
+        process.exit(1);
+}
+EOF
     fi
     
-    if [[ -f "$cli_source" ]]; then
-        chmod +x "$cli_source" 2>/dev/null || true
-        
-        if [[ "$OS" == "linux" ]]; then
-            ln -sf "$cli_source" /usr/local/bin/vaultscope 2>/dev/null || true
-        elif [[ "$OS" == "macos" ]]; then
-            ln -sf "$cli_source" /usr/local/bin/vaultscope 2>/dev/null || true
-        fi
-        
-        if command_exists vaultscope; then
-            log "SUCCESS" "VaultScope CLI installed"
-        fi
+    chmod +x "$cli_path"
+    
+    if [[ "$OS" == "linux" ]] || [[ "$OS" == "macos" ]]; then
+        ln -sf "$cli_path" /usr/local/bin/vaultscope 2>/dev/null || true
+    fi
+    
+    if command_exists vaultscope; then
+        log "SUCCESS" "VaultScope CLI installed"
     fi
 }
 
@@ -707,6 +1091,8 @@ save_configuration() {
     local service_manager="none"
     if [[ "$INIT_SYSTEM" == "systemd" ]]; then
         service_manager="systemd"
+    elif [[ "$OS" == "macos" ]]; then
+        service_manager="launchd"
     elif command_exists pm2; then
         service_manager="pm2"
     fi
@@ -720,6 +1106,9 @@ save_configuration() {
   "distro": "$DISTRO",
   "components": $(printf '%s\n' "${components[@]}" | jq -R . | jq -s . 2>/dev/null || echo '[]'),
   "serviceManager": "$service_manager",
+  "proxyEnabled": $([[ "$USE_PROXY" == "true" ]] && echo "true" || echo "false"),
+  "proxyType": "${PROXY_TYPE:-none}",
+  "proxyDomain": "${PROXY_DOMAIN:-}",
   "server": {
     "path": "$INSTALL_PATH/server",
     "url": "http://localhost:4000",
@@ -748,6 +1137,10 @@ uninstall_vaultscope() {
         systemctl disable vaultscope-client 2>/dev/null || true
         rm -f /etc/systemd/system/vaultscope-*.service
         systemctl daemon-reload
+    elif [[ "$OS" == "macos" ]]; then
+        launchctl unload "$HOME/Library/LaunchAgents/com.vaultscope.server.plist" 2>/dev/null || true
+        launchctl unload "$HOME/Library/LaunchAgents/com.vaultscope.client.plist" 2>/dev/null || true
+        rm -f "$HOME/Library/LaunchAgents/com.vaultscope.*.plist"
     fi
     
     pm2 delete vaultscope-server 2>/dev/null || true
@@ -756,6 +1149,23 @@ uninstall_vaultscope() {
     
     if [[ -L /usr/local/bin/vaultscope ]]; then
         rm -f /usr/local/bin/vaultscope
+    fi
+    
+    if [[ -L /usr/local/bin/vaultscope-server ]]; then
+        rm -f /usr/local/bin/vaultscope-server
+    fi
+    
+    if [[ -L /usr/local/bin/vaultscope-client ]]; then
+        rm -f /usr/local/bin/vaultscope-client
+    fi
+    
+    if [[ "$OS" == "linux" ]]; then
+        rm -f /etc/nginx/sites-enabled/vaultscope 2>/dev/null || true
+        rm -f /etc/nginx/sites-available/vaultscope 2>/dev/null || true
+        nginx -t && systemctl reload nginx 2>/dev/null || true
+    elif [[ "$OS" == "macos" ]]; then
+        rm -f /usr/local/etc/nginx/servers/vaultscope.conf 2>/dev/null || true
+        brew services restart nginx 2>/dev/null || true
     fi
     
     if [[ -d "$INSTALL_PATH" ]]; then
@@ -768,6 +1178,10 @@ uninstall_vaultscope() {
         log "SUCCESS" "Configuration file removed"
     fi
     
+    if [[ -d "$CONFIG_DIR" ]] && [[ -z "$(ls -A "$CONFIG_DIR")" ]]; then
+        rmdir "$CONFIG_DIR" 2>/dev/null || true
+    fi
+    
     log "SUCCESS" "Uninstallation complete"
 }
 
@@ -775,25 +1189,49 @@ show_menu() {
     echo
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║           VaultScope Statistics Installer               ║${NC}"
-    echo -e "${CYAN}║                 Version $SCRIPT_VERSION - Production              ║${NC}"
+    echo -e "${CYAN}║                 Version $SCRIPT_VERSION                        ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
     echo
     echo -e "${YELLOW}Installation Options:${NC}"
     echo "  1. Install Client only (Dashboard)"
     echo "  2. Install Server only (Monitoring Agent)"
     echo "  3. Install Both (Recommended)"
-    echo "  4. Uninstall"
-    echo "  5. Exit"
+    echo "  4. Install with Reverse Proxy"
+    echo "  5. Uninstall"
+    echo "  6. Exit"
     echo
     
     local choice=""
-    while [[ ! "$choice" =~ ^[1-5]$ ]]; do
-        read -p "Enter your choice (1-5): " choice
-        if [[ ! "$choice" =~ ^[1-5]$ ]]; then
-            echo -e "${RED}Invalid choice. Please enter a number between 1 and 5.${NC}"
+    while [[ ! "$choice" =~ ^[1-6]$ ]]; do
+        read -p "Enter your choice (1-6): " choice
+        if [[ ! "$choice" =~ ^[1-6]$ ]]; then
+            echo -e "${RED}Invalid choice. Please enter a number between 1 and 6.${NC}"
         fi
     done
     echo "$choice"
+}
+
+show_proxy_menu() {
+    echo
+    echo -e "${YELLOW}Select Reverse Proxy Type:${NC}"
+    echo "  1. Nginx"
+    echo "  2. Cloudflare Tunnel"
+    echo "  3. Skip proxy setup"
+    echo
+    
+    local choice=""
+    while [[ ! "$choice" =~ ^[1-3]$ ]]; do
+        read -p "Enter your choice (1-3): " choice
+        if [[ ! "$choice" =~ ^[1-3]$ ]]; then
+            echo -e "${RED}Invalid choice. Please enter a number between 1 and 3.${NC}"
+        fi
+    done
+    
+    case "$choice" in
+        1) PROXY_TYPE="nginx" ;;
+        2) PROXY_TYPE="cloudflared" ;;
+        3) PROXY_TYPE="" ;;
+    esac
 }
 
 main() {
@@ -833,6 +1271,10 @@ main() {
         install_choice="3"
     else
         install_choice=$(show_menu)
+        
+        if [[ -z "$install_choice" ]]; then
+            error_exit "No installation option selected"
+        fi
     fi
     
     case "$install_choice" in
@@ -848,15 +1290,31 @@ main() {
             install_client
             ;;
         4)
+            install_server
+            echo
+            install_client
+            echo
+            if [[ -z "$PROXY_TYPE" ]]; then
+                show_proxy_menu
+            fi
+            if [[ -n "$PROXY_TYPE" ]]; then
+                USE_PROXY=true
+                case "$PROXY_TYPE" in
+                    nginx) install_nginx_proxy ;;
+                    cloudflared) install_cloudflared_proxy ;;
+                esac
+            fi
+            ;;
+        5)
             uninstall_vaultscope
             exit 0
             ;;
-        5)
+        6)
             log "INFO" "Installation cancelled"
             exit 0
             ;;
         *)
-            error_exit "Invalid choice"
+            error_exit "Invalid choice: $install_choice"
             ;;
     esac
     
@@ -873,11 +1331,13 @@ main() {
         log "SUCCESS" "🎉 VaultScope CLI is now available!"
         echo
         echo -e "${CYAN}Quick Start Commands:${NC}"
-        echo "  vaultscope -h              # Show help"
+        echo "  vaultscope help            # Show help"
         echo "  vaultscope statistics      # Show installation info"
         echo "  vaultscope status          # Check service status"
+        echo "  vaultscope start           # Start all services"
+        echo "  vaultscope stop            # Stop all services"
+        echo "  vaultscope restart         # Restart all services"
         echo "  vaultscope logs            # View logs"
-        echo "  vaultscope restart         # Restart services"
         echo
     fi
     
@@ -889,12 +1349,31 @@ main() {
         echo "  sudo systemctl restart vaultscope-client   # Restart client"
         echo "  sudo journalctl -u vaultscope-server -f    # View server logs"
         echo "  sudo journalctl -u vaultscope-client -f    # View client logs"
+    elif [[ "$OS" == "macos" ]]; then
+        log "INFO" "Service Management Commands:"
+        echo "  launchctl list | grep vaultscope           # Check service status"
+        echo "  tail -f /tmp/server.log                    # View server logs"
+        echo "  tail -f /tmp/client.log                    # View client logs"
     else
         log "INFO" "PM2 Management Commands:"
         echo "  pm2 list              # Show all services"
         echo "  pm2 restart all       # Restart all services"
         echo "  pm2 logs              # View logs"
         echo "  pm2 monit             # Monitor services"
+    fi
+    
+    if [[ "$USE_PROXY" == "true" ]] && [[ -n "$PROXY_DOMAIN" ]]; then
+        echo
+        log "INFO" "Reverse Proxy Configuration:"
+        echo "  Type: $PROXY_TYPE"
+        echo "  Domain: $PROXY_DOMAIN"
+        if [[ "$PROXY_TYPE" == "nginx" ]]; then
+            echo "  Client URL: http://$PROXY_DOMAIN"
+            echo "  API URL: http://$PROXY_DOMAIN/api"
+        elif [[ "$PROXY_TYPE" == "cloudflared" ]]; then
+            echo "  Client URL: https://$PROXY_DOMAIN"
+            echo "  API URL: https://api.$PROXY_DOMAIN"
+        fi
     fi
     
     echo
