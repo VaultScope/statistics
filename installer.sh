@@ -280,7 +280,7 @@ clone_repository() {
         cp -r ./* "$INSTALL_DIR/" 2>/dev/null || true
     else
         print_message $BLUE "Cloning repository..."
-        git clone https://github.com/yourusername/statistics.git "$INSTALL_DIR" > /dev/null 2>&1
+        git clone https://github.com/vaultscope/statistics.git "$INSTALL_DIR" > /dev/null 2>&1
     fi
     
     cd "$INSTALL_DIR"
