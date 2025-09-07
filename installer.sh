@@ -726,9 +726,10 @@ EOF
 }
 
 install_nginx_proxy() {
-    log "INFO" "Installing nginx reverse proxy..."
+    log "INFO" "Setting up Nginx reverse proxy..."
     
     if ! command_exists nginx; then
+        log "INFO" "Installing Nginx..."
         case "$OS" in
             linux)
                 install_package "nginx"
@@ -740,11 +741,13 @@ install_nginx_proxy() {
     fi
     
     if [[ -z "$PROXY_DOMAIN" ]]; then
-        read -p "Enter domain name for reverse proxy: " PROXY_DOMAIN
+        PROXY_DOMAIN="localhost"
     fi
     
     local nginx_conf="/etc/nginx/sites-available/vaultscope"
     [[ "$OS" == "macos" ]] && nginx_conf="/usr/local/etc/nginx/servers/vaultscope.conf"
+    
+    log "INFO" "Configuring Nginx for domain: $PROXY_DOMAIN"
     
     cat > "$nginx_conf" << EOF
 server {
@@ -779,12 +782,15 @@ EOF
     
     if [[ "$OS" == "linux" ]]; then
         ln -sf "$nginx_conf" /etc/nginx/sites-enabled/vaultscope 2>/dev/null || true
-        nginx -t && systemctl reload nginx
+        nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1
     else
-        brew services restart nginx
+        brew services restart nginx >/dev/null 2>&1
     fi
     
     log "SUCCESS" "Nginx reverse proxy configured for $PROXY_DOMAIN"
+    log "INFO" "You can now access:"
+    log "INFO" "  Dashboard: http://$PROXY_DOMAIN"
+    log "INFO" "  API: http://$PROXY_DOMAIN/api"
 }
 
 install_cloudflared_proxy() {
