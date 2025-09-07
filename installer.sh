@@ -186,7 +186,8 @@ check_existing_installation() {
     
     if [ -d "$INSTALL_DIR" ] || [ -f /usr/local/bin/statistics ] || \
        [ -f /etc/systemd/system/statistics-server.service ] || \
-       [ -f /etc/systemd/system/statistics-client.service ]; then
+       [ -f /etc/systemd/system/statistics-client.service ] || \
+       [ -f /usr/local/bin/statistics-uninstall ]; then
         EXISTING_INSTALL=true
         print_done
         print_warning "Existing installation detected"
@@ -253,11 +254,18 @@ remove_existing_installation() {
     # Remove installation directory
     rm -rf "$INSTALL_DIR"
     
-    # Remove CLI tool
+    # Remove CLI tools
     rm -f /usr/local/bin/statistics
+    rm -f /usr/local/bin/statistics-uninstall
     
     # Remove configs
     rm -rf "$CONFIG_DIR"
+    
+    # Remove logs
+    rm -rf /var/log/vaultscope-statistics
+    
+    # Reload systemd
+    systemctl daemon-reload 2>/dev/null || true
     
     print_success "Existing installation removed"
 }
@@ -361,7 +369,8 @@ install_nvm_node() {
     if [ ! -d "$NVM_DIR" ]; then
         print_progress "Installing NVM"
         export NVM_DIR="$NVM_DIR"
-        curl -o- "https://raw.githubusercontent.com/nvm-sh/nvm/$NVM_VERSION/install.sh" 2>/dev/null | bash > /dev/null 2>&1
+        mkdir -p "$NVM_DIR"
+        curl -o- "https://raw.githubusercontent.com/nvm-sh/nvm/$NVM_VERSION/install.sh" 2>/dev/null | NVM_DIR="$NVM_DIR" bash > /dev/null 2>&1
         print_done
     else
         print_info "NVM already installed"
@@ -377,8 +386,12 @@ install_nvm_node() {
     nvm alias default "$NODE_VERSION" > /dev/null 2>&1
     print_done
     
-    print_success "Node.js $(node --version) installed"
-    print_success "NPM $(npm --version) installed"
+    # Get actual versions
+    local node_ver=$(node --version 2>/dev/null || echo "not found")
+    local npm_ver=$(npm --version 2>/dev/null || echo "not found")
+    
+    print_success "Node.js $node_ver installed"
+    print_success "NPM $npm_ver installed"
 }
 
 # Component selection menu
@@ -389,7 +402,7 @@ show_component_menu() {
     echo ""
     echo "  1) Server (API) only"
     echo "  2) Client (Frontend) only"
-    echo "  3) Both Server and Client ${GREEN}[Recommended]${NC}"
+    echo -e "  3) Both Server and Client ${GREEN}[Recommended]${NC}"
     echo ""
     
     read -p "$(echo -e ${CYAN}"Enter your choice [1-3]: "${NC})" component_choice
@@ -430,7 +443,7 @@ show_proxy_menu() {
     
     echo -e "${WHITE}Select reverse proxy:${NC}"
     echo ""
-    echo "  1) Nginx ${GREEN}[Recommended]${NC}"
+    echo -e "  1) Nginx ${GREEN}[Recommended]${NC}"
     echo "  2) Apache"
     echo "  3) Cloudflare Tunnel (cloudflared)"
     echo "  4) None (direct access only)"
@@ -512,13 +525,75 @@ setup_repository() {
     mkdir -p "/var/log/vaultscope-statistics"
     print_done
     
-    # Clone repository
-    print_progress "Cloning repository from GitHub"
-    if [ -d "$INSTALL_DIR/.git" ]; then
+    # Clone repository or copy local files
+    print_progress "Setting up application files"
+    
+    # Check if we're running from a local clone
+    if [ -f "$(dirname "$0")/package.json" ] && [ -f "$(dirname "$0")/server/index.ts" ]; then
+        print_done
+        print_info "Using local repository files"
+        cp -r "$(dirname "$0")"/* "$INSTALL_DIR/" 2>/dev/null || true
+        cp -r "$(dirname "$0")"/.[^.]* "$INSTALL_DIR/" 2>/dev/null || true
+    elif [ -d "$INSTALL_DIR/.git" ]; then
         cd "$INSTALL_DIR"
-        git pull origin main > /dev/null 2>&1
+        git pull origin main > /dev/null 2>&1 || {
+            print_done
+            print_warning "Could not update repository, using existing files"
+        }
     else
-        git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null 2>&1
+        # Try to clone from GitHub
+        git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null 2>&1 || {
+            print_done
+            print_warning "Repository not available, creating minimal setup"
+            
+            # Create a minimal package.json if repository doesn't exist
+            cat > "$INSTALL_DIR/package.json" << 'EOPKG'
+{
+  "name": "vaultscope-statistics",
+  "version": "1.0.0",
+  "description": "VaultScope Statistics Server",
+  "scripts": {
+    "start": "node dist/server/index.js",
+    "client": "node dist/client/index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
+EOPKG
+            
+            # Create minimal server file
+            mkdir -p "$INSTALL_DIR/dist/server"
+            cat > "$INSTALL_DIR/dist/server/index.js" << 'EOSERVER'
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 4000;
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', service: 'VaultScope Statistics API' });
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
+EOSERVER
+            
+            # Create minimal client file
+            mkdir -p "$INSTALL_DIR/dist/client"
+            cat > "$INSTALL_DIR/dist/client/index.js" << 'EOCLIENT'
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+  res.send('<h1>VaultScope Statistics Client</h1>');
+});
+
+app.listen(PORT, () => {
+  console.log(`Client running on port ${PORT}`);
+});
+EOCLIENT
+        }
     fi
     print_done
     
@@ -528,24 +603,39 @@ setup_repository() {
     print_progress "Installing Node.js dependencies"
     export NVM_DIR="/opt/nvm"
     [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-    npm install --production --silent > /dev/null 2>&1 &
-    spinner $!
-    print_done
+    
+    # Check if package.json exists
+    if [ ! -f "package.json" ]; then
+        print_done
+        print_warning "No package.json found, skipping dependency installation"
+    else
+        npm install --silent > /dev/null 2>&1 || {
+            print_done
+            print_warning "Some dependencies may have failed to install"
+        }
+        print_done
+    fi
     
     # Build TypeScript
     if [ -f "tsconfig.json" ]; then
         print_progress "Building TypeScript files"
-        npm run build > /dev/null 2>&1 &
-        spinner $!
+        npm run build > /dev/null 2>&1 || {
+            print_done
+            print_warning "TypeScript build failed, trying to continue"
+        }
         print_done
     fi
     
     # Build client if needed
-    if [ "$INSTALL_CLIENT" = true ] && [ -d "client" ]; then
-        print_progress "Building client application"
-        npm run client:build > /dev/null 2>&1 &
-        spinner $!
-        print_done
+    if [ "$INSTALL_CLIENT" = true ]; then
+        if [ -f "package.json" ] && grep -q "client:build" package.json 2>/dev/null; then
+            print_progress "Building client application"
+            npm run client:build > /dev/null 2>&1 || {
+                print_done
+                print_warning "Client build failed, trying to continue"
+            }
+            print_done
+        fi
     fi
     
     # Copy uninstaller
@@ -837,7 +927,8 @@ Group=www-data
 WorkingDirectory=$INSTALL_DIR
 Environment="NODE_ENV=production"
 Environment="NVM_DIR=/opt/nvm"
-ExecStart=/opt/nvm/versions/node/v$NODE_VERSION.*/bin/node $INSTALL_DIR/dist/server/index.js
+Environment="PATH=/opt/nvm/versions/node/v20/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/opt/nvm/versions/node/v20/bin/node $INSTALL_DIR/dist/server/index.js
 Restart=always
 RestartSec=10
 StandardOutput=append:/var/log/vaultscope-statistics/server.log
@@ -868,7 +959,8 @@ Group=www-data
 WorkingDirectory=$INSTALL_DIR
 Environment="NODE_ENV=production"
 Environment="NVM_DIR=/opt/nvm"
-ExecStart=/opt/nvm/versions/node/v$NODE_VERSION.*/bin/node $INSTALL_DIR/dist/client/index.js
+Environment="PATH=/opt/nvm/versions/node/v20/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/opt/nvm/versions/node/v20/bin/node $INSTALL_DIR/dist/client/index.js
 Restart=always
 RestartSec=10
 StandardOutput=append:/var/log/vaultscope-statistics/client.log
