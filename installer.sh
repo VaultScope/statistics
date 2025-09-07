@@ -863,6 +863,420 @@ EOF
     return 0
 }
 
+uninstall_vaultscope() {
+    log "INFO" "Uninstalling VaultScope Statistics..."
+    
+    # Stop all services
+    if [[ "$OS" == "linux" ]] && [[ "$INIT_SYSTEM" == "systemd" ]]; then
+        log "INFO" "Stopping systemd services..."
+        systemctl stop vaultscope-server vaultscope-client 2>/dev/null || true
+        systemctl disable vaultscope-server vaultscope-client 2>/dev/null || true
+        rm -f /etc/systemd/system/vaultscope-*.service
+        systemctl daemon-reload
+    fi
+    
+    # Stop PM2 processes
+    if command_exists pm2; then
+        log "INFO" "Stopping PM2 processes..."
+        pm2 delete vaultscope-server vaultscope-client 2>/dev/null || true
+        pm2 save >/dev/null 2>&1 || true
+    fi
+    
+    # Stop nginx if it was configured for VaultScope
+    if [[ -f "/etc/nginx/sites-enabled/vaultscope" ]] || [[ -f "/usr/local/etc/nginx/servers/vaultscope.conf" ]]; then
+        log "INFO" "Removing nginx configuration..."
+        rm -f /etc/nginx/sites-available/vaultscope /etc/nginx/sites-enabled/vaultscope 2>/dev/null || true
+        rm -f /usr/local/etc/nginx/servers/vaultscope.conf 2>/dev/null || true
+        
+        if [[ "$OS" == "linux" ]]; then
+            systemctl reload nginx 2>/dev/null || true
+        else
+            brew services restart nginx 2>/dev/null || true
+        fi
+    fi
+    
+    # Remove installation directory
+    if [[ -d "$INSTALL_PATH" ]]; then
+        log "INFO" "Removing installation directory: $INSTALL_PATH"
+        rm -rf "$INSTALL_PATH"
+    fi
+    
+    # Remove configuration files
+    if [[ -f "$CONFIG_FILE" ]]; then
+        log "INFO" "Removing configuration file: $CONFIG_FILE"
+        rm -f "$CONFIG_FILE"
+    fi
+    
+    # Remove symlinks
+    if [[ -L "/usr/local/bin/vaultscope" ]]; then
+        log "INFO" "Removing CLI symlink..."
+        rm -f /usr/local/bin/vaultscope
+    fi
+    
+    # Remove backup directory if exists
+    if [[ -d "$BACKUP_DIR" ]]; then
+        rm -rf "$BACKUP_DIR"
+    fi
+    
+    # Clean up user if created
+    if [[ "$EUID" -eq 0 ]] && id "vaultscope" >/dev/null 2>&1; then
+        log "INFO" "Removing vaultscope user..."
+        userdel vaultscope 2>/dev/null || true
+    fi
+    
+    log "SUCCESS" "Uninstallation complete"
+    log "INFO" "VaultScope Statistics has been removed from your system"
+}
+
+install_cli() {
+    log "INFO" "Installing VaultScope CLI..."
+    
+    local cli_path="$INSTALL_PATH/cli.js"
+    
+    if ! download_from_github "cli" "$INSTALL_PATH"; then
+        log "WARNING" "Failed to download CLI from GitHub, creating embedded version..."
+        
+        # Create a fully functional CLI
+        cat > "$cli_path" << 'EOF'
+#!/usr/bin/env node
+
+const { exec, execSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const readline = require('readline');
+
+const CONFIG_FILE = process.platform === 'win32'
+    ? path.join(process.env.ProgramData, 'VaultScope', 'statistics.json')
+    : '/etc/vaultscope/statistics.json';
+
+function getConfig() {
+    try {
+        return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+    } catch (err) {
+        console.error('Configuration not found. Is VaultScope installed?');
+        process.exit(1);
+    }
+}
+
+function showHelp() {
+    console.log(`
+VaultScope Statistics CLI
+
+Usage: vaultscope [COMMAND] [OPTIONS]
+
+Commands:
+  status              Show service status
+  start [service]     Start services (all|server|client)
+  stop [service]      Stop services (all|server|client)
+  restart [service]   Restart services (all|server|client)
+  logs [service]      View service logs
+  config              Show installation configuration
+  health              Check service health
+  apikey              Show server API key
+  update              Update VaultScope Statistics
+  version             Show version information
+  help                Show this help message
+
+Options:
+  -f, --follow        Follow log output (with 'logs' command)
+  -n, --lines <num>   Number of log lines to show (default: 50)
+
+Examples:
+  vaultscope status
+  vaultscope start server
+  vaultscope logs client -f
+  vaultscope restart all
+
+`);
+}
+
+function checkServiceHealth(port, name) {
+    return new Promise((resolve) => {
+        const http = require('http');
+        const options = {
+            hostname: 'localhost',
+            port: port,
+            path: '/health',
+            method: 'GET',
+            timeout: 5000
+        };
+        
+        const req = http.request(options, (res) => {
+            if (res.statusCode === 200) {
+                resolve({ name, status: 'running', port });
+            } else {
+                resolve({ name, status: 'not responding', port });
+            }
+        });
+        
+        req.on('error', () => {
+            resolve({ name, status: 'stopped', port });
+        });
+        
+        req.end();
+    });
+}
+
+async function getServiceStatus() {
+    const config = getConfig();
+    const results = [];
+    
+    if (config.components.includes('server')) {
+        results.push(await checkServiceHealth(config.server.port, 'Server'));
+    }
+    
+    if (config.components.includes('client')) {
+        results.push(await checkServiceHealth(config.client.port, 'Client'));
+    }
+    
+    return results;
+}
+
+function manageService(action, service) {
+    const config = getConfig();
+    let command = '';
+    
+    if (config.serviceManager === 'systemd') {
+        const services = service === 'all' 
+            ? 'vaultscope-server vaultscope-client' 
+            : `vaultscope-${service}`;
+        command = `sudo systemctl ${action} ${services}`;
+    } else if (config.serviceManager === 'pm2') {
+        const target = service === 'all' ? 'all' : `vaultscope-${service}`;
+        command = `pm2 ${action} ${target}`;
+    } else {
+        console.error('Unknown service manager');
+        process.exit(1);
+    }
+    
+    exec(command, (err, stdout, stderr) => {
+        if (err) {
+            console.error(`Failed to ${action} ${service}: ${stderr}`);
+            process.exit(1);
+        }
+        console.log(`${service} ${action}ed successfully`);
+        if (stdout) console.log(stdout);
+    });
+}
+
+function showLogs(service, options) {
+    const config = getConfig();
+    let command = '';
+    
+    if (config.serviceManager === 'systemd') {
+        const serviceName = service === 'all' ? '*' : service;
+        const lines = options.lines || 50;
+        const follow = options.follow ? '-f' : '';
+        command = `sudo journalctl -u vaultscope-${serviceName} -n ${lines} ${follow}`;
+    } else if (config.serviceManager === 'pm2') {
+        const target = service === 'all' ? '' : `vaultscope-${service}`;
+        const lines = options.lines || 50;
+        command = `pm2 logs ${target} --lines ${lines}`;
+        if (!options.follow) command += ' --nostream';
+    }
+    
+    const child = exec(command);
+    child.stdout.pipe(process.stdout);
+    child.stderr.pipe(process.stderr);
+}
+
+async function main() {
+    const args = process.argv.slice(2);
+    const command = args[0] || 'help';
+    const service = args[1] || 'all';
+    const options = {
+        follow: args.includes('-f') || args.includes('--follow'),
+        lines: args.includes('-n') || args.includes('--lines') 
+            ? parseInt(args[args.indexOf('-n') + 1] || args[args.indexOf('--lines') + 1])
+            : 50
+    };
+    
+    switch (command) {
+        case 'status':
+            const statuses = await getServiceStatus();
+            console.log('\nVaultScope Statistics Service Status:');
+            console.log('=====================================');
+            statuses.forEach(s => {
+                const indicator = s.status === 'running' ? '✓' : '✗';
+                const color = s.status === 'running' ? '\x1b[32m' : '\x1b[31m';
+                console.log(`${color}${indicator}\x1b[0m ${s.name}: ${s.status} (port ${s.port})`);
+            });
+            console.log('');
+            break;
+            
+        case 'start':
+            manageService('start', service);
+            break;
+            
+        case 'stop':
+            manageService('stop', service);
+            break;
+            
+        case 'restart':
+            manageService('restart', service);
+            break;
+            
+        case 'logs':
+            showLogs(service, options);
+            break;
+            
+        case 'config':
+            const config = getConfig();
+            console.log(JSON.stringify(config, null, 2));
+            break;
+            
+        case 'health':
+            const health = await getServiceStatus();
+            const allRunning = health.every(s => s.status === 'running');
+            console.log(allRunning ? 'All services healthy' : 'Some services are down');
+            process.exit(allRunning ? 0 : 1);
+            break;
+            
+        case 'apikey':
+            try {
+                const cfg = getConfig();
+                if (cfg.server && cfg.server.apiKeyFile) {
+                    const key = fs.readFileSync(cfg.server.apiKeyFile, 'utf8').trim();
+                    console.log(`API Key: ${key}`);
+                } else {
+                    console.error('API key file not found');
+                }
+            } catch (err) {
+                console.error('Failed to read API key:', err.message);
+            }
+            break;
+            
+        case 'version':
+            console.log('VaultScope Statistics CLI v3.0.0');
+            break;
+            
+        case 'update':
+            console.log('Checking for updates...');
+            exec('curl -fsSL https://raw.githubusercontent.com/VaultScope/statistics/main/installer.sh | bash -s -- --update', 
+                (err, stdout, stderr) => {
+                    if (err) {
+                        console.error('Update failed:', stderr);
+                    } else {
+                        console.log('Update completed successfully');
+                    }
+                });
+            break;
+            
+        case 'help':
+        case '-h':
+        case '--help':
+            showHelp();
+            break;
+            
+        default:
+            console.error(`Unknown command: ${command}`);
+            showHelp();
+            process.exit(1);
+    }
+}
+
+main().catch(err => {
+    console.error('Error:', err.message);
+    process.exit(1);
+});
+EOF
+    fi
+    
+    # Make CLI executable
+    chmod +x "$cli_path"
+    
+    # Create symlink for global access
+    if [[ -d "/usr/local/bin" ]]; then
+        ln -sf "$cli_path" /usr/local/bin/vaultscope 2>/dev/null || {
+            log "WARNING" "Could not create symlink in /usr/local/bin (may need sudo)"
+            log "INFO" "You can manually create it with: sudo ln -sf $cli_path /usr/local/bin/vaultscope"
+        }
+    fi
+    
+    # Verify CLI installation
+    if command_exists vaultscope || [[ -x "$cli_path" ]]; then
+        log "SUCCESS" "VaultScope CLI installed successfully"
+        log "INFO" "CLI location: $cli_path"
+        if command_exists vaultscope; then
+            log "INFO" "Global command 'vaultscope' is available"
+        else
+            log "INFO" "Run CLI with: $cli_path"
+        fi
+    else
+        log "WARNING" "CLI installation completed but could not verify"
+    fi
+}
+
+install_cloudflared_proxy() {
+    log "INFO" "Installing Cloudflare Tunnel..."
+    
+    # Install cloudflared binary
+    case "$OS" in
+        linux)
+            case "$DISTRO" in
+                ubuntu|debian|raspbian)
+                    if ! command_exists cloudflared; then
+                        log "INFO" "Installing cloudflared package..."
+                        download_with_retry "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb" "/tmp/cloudflared.deb"
+                        dpkg -i /tmp/cloudflared.deb >/dev/null 2>&1 || apt-get install -f -y >/dev/null 2>&1
+                        rm -f /tmp/cloudflared.deb
+                    fi
+                    ;;
+                *)
+                    if ! command_exists cloudflared; then
+                        log "INFO" "Installing cloudflared binary..."
+                        download_with_retry "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64" "/usr/local/bin/cloudflared"
+                        chmod +x /usr/local/bin/cloudflared
+                    fi
+                    ;;
+            esac
+            ;;
+        macos)
+            if ! command_exists cloudflared; then
+                brew install cloudflared >/dev/null 2>&1 || {
+                    log "ERROR" "Failed to install cloudflared via Homebrew"
+                    return 1
+                }
+            fi
+            ;;
+    esac
+    
+    if ! command_exists cloudflared; then
+        log "ERROR" "Failed to install cloudflared"
+        return 1
+    fi
+    
+    if [[ -z "$PROXY_DOMAIN" ]]; then
+        read -p "Enter domain name for Cloudflare Tunnel: " PROXY_DOMAIN
+    fi
+    
+    log "INFO" "Configuring Cloudflare Tunnel for domain: $PROXY_DOMAIN"
+    
+    # Create tunnel configuration
+    local tunnel_config="$CONFIG_DIR/cloudflared.yml"
+    cat > "$tunnel_config" << EOF
+tunnel: vaultscope-statistics
+credentials-file: $CONFIG_DIR/cloudflared-creds.json
+
+ingress:
+  - hostname: $PROXY_DOMAIN
+    service: http://localhost:$CLIENT_PORT
+  - hostname: api.$PROXY_DOMAIN
+    service: http://localhost:$SERVER_PORT
+  - service: http_status:404
+EOF
+    
+    log "SUCCESS" "Cloudflare Tunnel configuration created"
+    log "WARNING" "Manual steps required to complete setup:"
+    log "INFO" "1. Run: cloudflared tunnel login"
+    log "INFO" "2. Run: cloudflared tunnel create vaultscope-statistics"
+    log "INFO" "3. Run: cloudflared tunnel route dns vaultscope-statistics $PROXY_DOMAIN"
+    log "INFO" "4. Run: cloudflared tunnel route dns vaultscope-statistics api.$PROXY_DOMAIN"
+    log "INFO" "5. Run: cloudflared tunnel run vaultscope-statistics"
+    
+    return 0
+}
+
 install_nginx_proxy() {
     log "INFO" "Setting up Nginx reverse proxy..."
     
@@ -1217,7 +1631,8 @@ main() {
     log "INFO" "Init system: $INIT_SYSTEM"
     
     if [[ "$UNINSTALL" == "true" ]]; then
-        error_exit "Uninstall function not implemented in this version"
+        uninstall_vaultscope
+        exit 0
     fi
     
     check_internet
@@ -1250,9 +1665,10 @@ main() {
             install_server && echo && install_client && echo
             if [[ -z "$PROXY_TYPE" ]]; then
                 echo -e "${YELLOW}Select Reverse Proxy Type:${NC}"
-                echo "  1. Nginx"
-                echo "  2. Skip proxy setup"
-                read -p "Enter your choice (1-2): " proxy_choice
+                echo "  1. Nginx (HTTP/HTTPS)"
+                echo "  2. Cloudflare Tunnel (HTTPS)"
+                echo "  3. Skip proxy setup"
+                read -p "Enter your choice (1-3): " proxy_choice
                 case "$proxy_choice" in
                     1) 
                         PROXY_TYPE="nginx"
@@ -1263,13 +1679,28 @@ main() {
                         USE_PROXY=true
                         install_nginx_proxy
                         ;;
+                    2)
+                        PROXY_TYPE="cloudflared"
+                        if [[ -z "$PROXY_DOMAIN" ]]; then
+                            read -p "Enter domain name for Cloudflare Tunnel: " PROXY_DOMAIN
+                        fi
+                        USE_PROXY=true
+                        install_cloudflared_proxy
+                        ;;
                 esac
+            elif [[ "$PROXY_TYPE" == "cloudflared" ]]; then
+                install_cloudflared_proxy
+            elif [[ "$PROXY_TYPE" == "nginx" ]]; then
+                install_nginx_proxy
             fi
             ;;
-        5) error_exit "Uninstall not implemented" ;;
+        5) uninstall_vaultscope ;;
         6) log "INFO" "Installation cancelled"; exit 0 ;;
         *) error_exit "Invalid choice: $install_choice" ;;
     esac
+    
+    # Install CLI for all installation types
+    install_cli
     
     save_configuration
     
@@ -1286,6 +1717,18 @@ main() {
         log "WARNING" "Server API Key saved to: $INSTALL_PATH/.api_key"
         log "WARNING" "Keep this key secure!"
     fi
+    
+    # Show CLI usage instructions
+    echo
+    log "INFO" "VaultScope CLI is now available!"
+    echo
+    echo -e "${CYAN}Quick Start Commands:${NC}"
+    echo "  vaultscope status      # Check service status"
+    echo "  vaultscope start       # Start all services"
+    echo "  vaultscope stop        # Stop all services"
+    echo "  vaultscope logs        # View service logs"
+    echo "  vaultscope config      # Show configuration"
+    echo "  vaultscope help        # Show all commands"
 }
 
 main "$@"

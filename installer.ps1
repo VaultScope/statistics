@@ -711,9 +711,10 @@ function Install-CLI {
     
     $cliSource = "$InstallPath\cli.js"
     $cliBatch = "$InstallPath\vaultscope.cmd"
+    $cliPs1 = "$InstallPath\vaultscope.ps1"
     
     if (-not (Download-FromGitHub -Component "cli" -TargetDir $InstallPath)) {
-        Write-Log "Creating fallback CLI..." "WARNING"
+        Write-Log "Creating embedded CLI..." "WARNING"
         
         $cliContent = @'
 #!/usr/bin/env node
@@ -805,19 +806,41 @@ switch (command) {
     }
     
     if (Test-Path $cliSource) {
+        # Create batch wrapper for CMD
         $batchContent = @"
 @echo off
 node "$cliSource" %*
 "@
         $batchContent | Out-File -FilePath $cliBatch -Encoding ASCII
         
+        # Create PowerShell wrapper
+        $ps1Content = @"
+#!/usr/bin/env pwsh
+param(
+    [Parameter(ValueFromRemainingArguments=`$true)]
+    [string[]]`$Arguments
+)
+
+& node "$cliSource" @Arguments
+"@
+        $ps1Content | Out-File -FilePath $cliPs1 -Encoding UTF8
+        
+        # Add to PATH
         $currentPath = [Environment]::GetEnvironmentVariable("Path", "Machine")
         if ($currentPath -notlike "*$InstallPath*") {
             [Environment]::SetEnvironmentVariable("Path", "$currentPath;$InstallPath", "Machine")
             $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine")
         }
         
-        Write-Log "VaultScope CLI installed" "SUCCESS"
+        # Create firewall rules for services
+        Write-Log "Creating firewall rules..."
+        New-NetFirewallRule -DisplayName "VaultScope Server" -Direction Inbound -Protocol TCP -LocalPort 4000 -Action Allow -ErrorAction SilentlyContinue | Out-Null
+        New-NetFirewallRule -DisplayName "VaultScope Client" -Direction Inbound -Protocol TCP -LocalPort 3000 -Action Allow -ErrorAction SilentlyContinue | Out-Null
+        
+        Write-Log "VaultScope CLI installed successfully" "SUCCESS"
+        Write-Log "CLI commands available: vaultscope (CMD) or vaultscope.ps1 (PowerShell)" "INFO"
+    } else {
+        Write-Log "Failed to create CLI" "ERROR"
     }
 }
 
@@ -872,33 +895,72 @@ function Save-Configuration {
 function Uninstall-VaultScope {
     Write-Log "Uninstalling VaultScope Statistics..." "INFO"
     
-    Write-Log "Stopping PM2 processes..."
-    & pm2 delete vaultscope-server 2>$null
-    & pm2 delete vaultscope-client 2>$null
-    & pm2 save 2>$null
-    
-    Write-Log "Stopping Nginx if running..."
-    $nginxPath = "$env:ProgramFiles\nginx"
-    if (Test-Path "$nginxPath\nginx.exe") {
-        & "$nginxPath\nginx.exe" -s stop 2>$null
+    # Stop PM2 processes
+    if (Get-Command pm2 -ErrorAction SilentlyContinue) {
+        Write-Log "Stopping PM2 processes..."
+        & pm2 delete vaultscope-server 2>$null
+        & pm2 delete vaultscope-client 2>$null
+        & pm2 save 2>$null
     }
     
-    Write-Log "Removing installation directory..."
+    # Stop Windows services if they exist
+    $services = @("vaultscope-server", "vaultscope-client")
+    foreach ($service in $services) {
+        if (Get-Service -Name $service -ErrorAction SilentlyContinue) {
+            Write-Log "Stopping service: $service"
+            Stop-Service -Name $service -Force -ErrorAction SilentlyContinue
+            & sc.exe delete $service 2>$null
+        }
+    }
+    
+    # Stop Nginx if running
+    $nginxPath = "$env:ProgramFiles\nginx"
+    if (Test-Path "$nginxPath\nginx.exe") {
+        Write-Log "Stopping Nginx..."
+        & "$nginxPath\nginx.exe" -s stop 2>$null
+        Start-Sleep -Seconds 2
+    }
+    
+    # Remove installation directory
     if (Test-Path $InstallPath) {
+        Write-Log "Removing installation directory: $InstallPath"
+        # Try to remove read-only attributes first
+        Get-ChildItem -Path $InstallPath -Recurse | ForEach-Object {
+            $_.Attributes = 'Normal'
+        }
         Remove-Item -Path $InstallPath -Recurse -Force -ErrorAction SilentlyContinue
     }
     
-    Write-Log "Removing configuration..."
-    if (Test-Path $Script:ConfigFile) {
-        Remove-Item -Path $Script:ConfigFile -Force -ErrorAction SilentlyContinue
+    # Remove configuration directory
+    if (Test-Path $Script:ConfigDir) {
+        Write-Log "Removing configuration directory..."
+        Remove-Item -Path $Script:ConfigDir -Recurse -Force -ErrorAction SilentlyContinue
     }
     
+    # Remove from PATH
     Write-Log "Removing from PATH..."
     $currentPath = [Environment]::GetEnvironmentVariable("Path", "Machine")
     $newPath = ($currentPath -split ';' | Where-Object { $_ -notlike "*$InstallPath*" }) -join ';'
     [Environment]::SetEnvironmentVariable("Path", $newPath, "Machine")
+    $env:Path = $newPath
+    
+    # Remove firewall rules
+    Write-Log "Removing firewall rules..."
+    Remove-NetFirewallRule -DisplayName "VaultScope*" -ErrorAction SilentlyContinue
+    
+    # Clean up temporary files
+    $tempFiles = @(
+        "$env:TEMP\vaultscope*",
+        "$env:TEMP\node-v*",
+        "$env:TEMP\git-installer.exe",
+        "$env:TEMP\nginx.zip"
+    )
+    foreach ($pattern in $tempFiles) {
+        Remove-Item -Path $pattern -Force -ErrorAction SilentlyContinue
+    }
     
     Write-Log "Uninstallation complete" "SUCCESS"
+    Write-Log "VaultScope Statistics has been removed from your system" "INFO"
 }
 
 function Show-Menu {
