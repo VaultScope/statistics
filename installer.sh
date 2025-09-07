@@ -819,6 +819,8 @@ install_cloudflared_proxy() {
     
     log "INFO" "Configuring Cloudflare Tunnel..."
     
+    mkdir -p "$CONFIG_DIR" 2>/dev/null || true
+    
     local tunnel_config="$CONFIG_DIR/cloudflared.yml"
     
     cat > "$tunnel_config" << EOF
