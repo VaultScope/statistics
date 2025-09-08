@@ -242,6 +242,10 @@ nuclear_cleanup() {
     print_progress "Removing web server configurations"
     
     # Nginx
+    rm -f /etc/nginx/sites-enabled/vaultscope-api 2>/dev/null || true
+    rm -f /etc/nginx/sites-enabled/vaultscope-client 2>/dev/null || true
+    rm -f /etc/nginx/sites-available/vaultscope-api 2>/dev/null || true
+    rm -f /etc/nginx/sites-available/vaultscope-client 2>/dev/null || true
     rm -f /etc/nginx/sites-enabled/*statistics* 2>/dev/null || true
     rm -f /etc/nginx/sites-enabled/*vaultscope* 2>/dev/null || true
     rm -f /etc/nginx/sites-available/*statistics* 2>/dev/null || true
@@ -632,7 +636,7 @@ Type=simple
 User=www-data
 WorkingDirectory=$INSTALL_DIR/client
 Environment="NODE_ENV=production"
-Environment="PORT=3000"
+Environment="PORT=4001"
 ExecStart=$node_path $INSTALL_DIR/client/node_modules/.bin/next start
 Restart=always
 RestartSec=10
@@ -661,6 +665,174 @@ EOF
         print_success "Server service running successfully"
     else
         print_warning "Server service may not be running properly"
+    fi
+}
+
+# ============================================================================
+# CONFIGURE REVERSE PROXY
+# ============================================================================
+configure_reverse_proxy() {
+    print_section "Reverse Proxy Configuration"
+    
+    echo "Do you want to configure Nginx reverse proxy? (y/n)"
+    read -p "Choice: " proxy_choice
+    
+    if [[ "$proxy_choice" == "y" || "$proxy_choice" == "Y" ]]; then
+        safe_log "Configuring Nginx reverse proxy"
+        
+        # Install nginx if not present
+        if ! command -v nginx &> /dev/null; then
+            print_progress "Installing Nginx"
+            case $PKG_MANAGER in
+                apt)
+                    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nginx >/dev/null 2>&1 || true
+                    ;;
+                yum|dnf)
+                    $PKG_MANAGER install -y -q nginx >/dev/null 2>&1 || true
+                    ;;
+                pacman)
+                    pacman -S --noconfirm nginx >/dev/null 2>&1 || true
+                    ;;
+                brew)
+                    brew install nginx >/dev/null 2>&1 || true
+                    ;;
+            esac
+            print_done
+        fi
+        
+        echo "Enter your API domain (e.g., api.example.com):"
+        read -p "API Domain: " api_domain
+        
+        echo "Enter your client domain (e.g., app.example.com):"
+        read -p "Client Domain: " client_domain
+        
+        # Create nginx configuration for API
+        print_progress "Creating API proxy configuration"
+        cat > /etc/nginx/sites-available/vaultscope-api << EOF
+server {
+    listen 80;
+    server_name $api_domain;
+    
+    location / {
+        proxy_pass http://localhost:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOF
+        print_done
+        
+        # Create nginx configuration for Client
+        print_progress "Creating Client proxy configuration"
+        cat > /etc/nginx/sites-available/vaultscope-client << EOF
+server {
+    listen 80;
+    server_name $client_domain;
+    
+    location / {
+        proxy_pass http://localhost:4001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOF
+        print_done
+        
+        # Enable sites
+        print_progress "Enabling proxy sites"
+        ln -sf /etc/nginx/sites-available/vaultscope-api /etc/nginx/sites-enabled/ 2>/dev/null || true
+        ln -sf /etc/nginx/sites-available/vaultscope-client /etc/nginx/sites-enabled/ 2>/dev/null || true
+        print_done
+        
+        # Test and reload nginx
+        print_progress "Testing and reloading Nginx"
+        nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1 || true
+        print_done
+        
+        print_success "Reverse proxy configured for:"
+        echo "  API: http://$api_domain -> http://localhost:4000"
+        echo "  Client: http://$client_domain -> http://localhost:4001"
+        
+        # Store domains for SSL configuration
+        export API_DOMAIN="$api_domain"
+        export CLIENT_DOMAIN="$client_domain"
+    else
+        safe_log "Skipping reverse proxy configuration"
+    fi
+}
+
+# ============================================================================
+# CONFIGURE SSL
+# ============================================================================
+configure_ssl() {
+    print_section "SSL Configuration"
+    
+    echo "Do you want to configure SSL certificates? (y/n)"
+    read -p "Choice: " ssl_choice
+    
+    if [[ "$ssl_choice" == "y" || "$ssl_choice" == "Y" ]]; then
+        safe_log "Configuring SSL certificates"
+        
+        # Install certbot if not present
+        if ! command -v certbot &> /dev/null; then
+            print_progress "Installing Certbot"
+            case $PKG_MANAGER in
+                apt)
+                    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq certbot python3-certbot-nginx >/dev/null 2>&1 || true
+                    ;;
+                yum|dnf)
+                    $PKG_MANAGER install -y -q certbot python3-certbot-nginx >/dev/null 2>&1 || true
+                    ;;
+                pacman)
+                    pacman -S --noconfirm certbot certbot-nginx >/dev/null 2>&1 || true
+                    ;;
+                brew)
+                    brew install certbot >/dev/null 2>&1 || true
+                    ;;
+            esac
+            print_done
+        fi
+        
+        # Use domains from reverse proxy config or ask for them
+        if [ -z "$API_DOMAIN" ] || [ -z "$CLIENT_DOMAIN" ]; then
+            echo "Enter your API domain (e.g., api.example.com):"
+            read -p "API Domain: " API_DOMAIN
+            
+            echo "Enter your client domain (e.g., app.example.com):"
+            read -p "Client Domain: " CLIENT_DOMAIN
+        fi
+        
+        echo "Enter your email for SSL certificates:"
+        read -p "Email: " email
+        
+        # Get certificates for both domains
+        print_progress "Obtaining SSL certificates"
+        certbot --nginx -d "$API_DOMAIN" -d "$CLIENT_DOMAIN" --non-interactive --agree-tos --email "$email" >/dev/null 2>&1 || {
+            print_warning "Could not obtain certificates automatically"
+            echo "Please run manually: certbot --nginx -d $API_DOMAIN -d $CLIENT_DOMAIN"
+        }
+        print_done
+        
+        print_success "SSL certificates configured for $API_DOMAIN and $CLIENT_DOMAIN"
+        
+        # Setup auto-renewal
+        print_progress "Setting up auto-renewal"
+        (crontab -l 2>/dev/null; echo "0 0 * * * /usr/bin/certbot renew --quiet") | crontab - 2>/dev/null || true
+        print_done
+    else
+        safe_log "Skipping SSL configuration"
     fi
 }
 
@@ -704,6 +876,8 @@ main() {
     install_nodejs
     install_application
     create_services
+    configure_reverse_proxy
+    configure_ssl
     create_cli_tool
     
     # Final message
@@ -713,7 +887,7 @@ main() {
     echo ""
     echo "Service Status:"
     echo "  • Server: http://localhost:4000"
-    [ -f /etc/systemd/system/statistics-client.service ] && echo "  • Client: http://localhost:3000"
+    [ -f /etc/systemd/system/statistics-client.service ] && echo "  • Client: http://localhost:4001"
     echo ""
     echo "Commands:"
     echo "  • CLI Tool: statistics"
