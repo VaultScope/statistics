@@ -457,6 +457,22 @@ cleanup_complete_installation() {
     rm -rf /etc/statistics
     print_done
     
+    # Remove ALL log directories
+    print_progress "Removing ALL log files"
+    rm -rf "$LOG_DIR"
+    rm -rf /var/log/vaultscope-statistics
+    rm -rf /var/log/vaultscope
+    rm -rf /var/log/statistics
+    print_done
+    
+    # Remove ALL backup directories
+    print_progress "Removing ALL backup files"
+    rm -rf "$BACKUP_DIR"
+    rm -rf /var/backups/vaultscope-statistics
+    rm -rf /var/backups/vaultscope
+    rm -rf /var/backups/statistics
+    print_done
+    
     # Remove ALL CLI tools and binaries
     print_progress "Removing ALL CLI tools"
     rm -f /usr/local/bin/statistics
@@ -1217,7 +1233,13 @@ rm -rf /opt/vaultscope
 rm -rf /etc/vaultscope-statistics
 rm -rf /etc/vaultscope
 rm -rf /etc/statistics
+print_done
+
+# Remove ALL backup directories
+print_progress "Removing ALL backup directories"
 rm -rf /var/backups/vaultscope-statistics
+rm -rf /var/backups/vaultscope
+rm -rf /var/backups/statistics
 print_done
 
 # Remove log directories separately
