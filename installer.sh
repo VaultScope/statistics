@@ -752,46 +752,52 @@ configure_reverse_proxy() {
         
         # Create nginx configuration for API
         print_progress "Creating API proxy configuration"
-        cat > /etc/nginx/sites-available/vaultscope-api << EOF
+        cat > /etc/nginx/sites-available/vaultscope-api << 'NGINX_EOF'
 server {
     listen 80;
-    server_name $api_domain;
+    server_name API_DOMAIN_PLACEHOLDER;
     
     location / {
-        proxy_pass http://localhost:4000;
+        proxy_pass http://127.0.0.1:4000;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_cache_bypass \$http_upgrade;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400;
     }
 }
-EOF
+NGINX_EOF
+        # Replace placeholder with actual domain
+        sed -i "s/API_DOMAIN_PLACEHOLDER/$api_domain/g" /etc/nginx/sites-available/vaultscope-api
         print_done
         
         # Create nginx configuration for Client
         print_progress "Creating Client proxy configuration"
-        cat > /etc/nginx/sites-available/vaultscope-client << EOF
+        cat > /etc/nginx/sites-available/vaultscope-client << 'NGINX_EOF'
 server {
     listen 80;
-    server_name $client_domain;
+    server_name CLIENT_DOMAIN_PLACEHOLDER;
     
     location / {
-        proxy_pass http://localhost:4001;
+        proxy_pass http://127.0.0.1:4001;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_cache_bypass \$http_upgrade;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400;
     }
 }
-EOF
+NGINX_EOF
+        # Replace placeholder with actual domain
+        sed -i "s/CLIENT_DOMAIN_PLACEHOLDER/$client_domain/g" /etc/nginx/sites-available/vaultscope-client
         print_done
         
         # Enable sites
@@ -800,10 +806,19 @@ EOF
         ln -sf /etc/nginx/sites-available/vaultscope-client /etc/nginx/sites-enabled/ 2>/dev/null || true
         print_done
         
-        # Test and reload nginx
-        print_progress "Testing and reloading Nginx"
-        nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1 || true
-        print_done
+        # Test nginx configuration
+        print_progress "Testing Nginx configuration"
+        if nginx -t 2>/dev/null; then
+            print_done
+            
+            # Reload nginx
+            print_progress "Reloading Nginx"
+            systemctl reload nginx || systemctl restart nginx || true
+            print_done
+        else
+            print_warning "Nginx configuration test failed, checking..."
+            nginx -t
+        fi
         
         print_success "Reverse proxy configured for:"
         echo "  API: http://$api_domain -> http://localhost:4000"
