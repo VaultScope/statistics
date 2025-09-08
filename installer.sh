@@ -287,37 +287,48 @@ detect_existing_installation() {
 }
 
 cleanup_complete_installation() {
-    print_section "Removing Existing Installation"
+    print_section "Removing ALL Existing Installations"
     
-    # Stop and remove all services
-    print_progress "Stopping services"
-    systemctl stop statistics-server 2>/dev/null || true
-    systemctl stop statistics-client 2>/dev/null || true
-    systemctl disable statistics-server 2>/dev/null || true
-    systemctl disable statistics-client 2>/dev/null || true
+    # Stop and remove ALL possible services
+    print_progress "Stopping ALL services"
+    for service in statistics-server statistics-client vaultscope-server vaultscope-client vaultscope-statistics-server vaultscope-statistics-client; do
+        systemctl stop $service 2>/dev/null || true
+        systemctl disable $service 2>/dev/null || true
+    done
     rm -f /etc/systemd/system/statistics-*.service
+    rm -f /etc/systemd/system/vaultscope-*.service
+    rm -f /lib/systemd/system/statistics-*.service
+    rm -f /lib/systemd/system/vaultscope-*.service
     systemctl daemon-reload 2>/dev/null || true
     print_done
     
-    # Remove Nginx configurations
-    print_progress "Removing Nginx configurations"
+    # Remove ALL Nginx configurations
+    print_progress "Removing ALL Nginx configurations"
     rm -f /etc/nginx/sites-enabled/statistics-*
+    rm -f /etc/nginx/sites-enabled/vaultscope-*
+    rm -f /etc/nginx/sites-enabled/*cptcr*
     rm -f /etc/nginx/sites-available/statistics-*
+    rm -f /etc/nginx/sites-available/vaultscope-*
+    rm -f /etc/nginx/sites-available/*cptcr*
     if systemctl is-active nginx > /dev/null 2>&1; then
         nginx -t > /dev/null 2>&1 && systemctl reload nginx > /dev/null 2>&1 || true
     fi
     print_done
     
-    # Remove Apache configurations
-    print_progress "Removing Apache configurations"
+    # Remove ALL Apache configurations
+    print_progress "Removing ALL Apache configurations"
     if [ "$OS" == "debian" ]; then
-        a2dissite statistics-* > /dev/null 2>&1 || true
+        a2dissite statistics-* 2>/dev/null || true
+        a2dissite vaultscope-* 2>/dev/null || true
         rm -f /etc/apache2/sites-available/statistics-*
+        rm -f /etc/apache2/sites-available/vaultscope-*
+        rm -f /etc/apache2/sites-available/*cptcr*
         if systemctl is-active apache2 > /dev/null 2>&1; then
             systemctl reload apache2 > /dev/null 2>&1 || true
         fi
     else
         rm -f /etc/httpd/conf.d/statistics-*
+        rm -f /etc/httpd/conf.d/vaultscope-*
         if systemctl is-active httpd > /dev/null 2>&1; then
             systemctl reload httpd > /dev/null 2>&1 || true
         fi
@@ -327,20 +338,44 @@ cleanup_complete_installation() {
     # Remove Cloudflared configurations
     print_progress "Removing Cloudflared configurations"
     rm -f /etc/cloudflared/*statistics*
+    rm -f /etc/cloudflared/*vaultscope*
+    rm -f /etc/cloudflared/config.yml
+    systemctl stop cloudflared 2>/dev/null || true
     print_done
     
-    # Remove directories (but keep log dir for current installation)
-    print_progress "Removing installation files"
+    # Remove ALL installation directories
+    print_progress "Removing ALL installation files"
     rm -rf "$INSTALL_DIR"
+    rm -rf /var/www/vaultscope-statistics
+    rm -rf /var/www/statistics
+    rm -rf /opt/vaultscope-statistics
+    rm -rf /opt/statistics
     rm -rf "$CONFIG_DIR"
-    # Don't remove LOG_DIR yet - we're still logging to it
+    rm -rf /etc/vaultscope-statistics
+    rm -rf /etc/vaultscope
+    rm -rf /etc/statistics
     print_done
     
-    # Remove CLI tools
-    print_progress "Removing CLI tools"
+    # Remove ALL CLI tools and binaries
+    print_progress "Removing ALL CLI tools"
     rm -f /usr/local/bin/statistics
     rm -f /usr/local/bin/statistics-uninstall
+    rm -f /usr/local/bin/vaultscope
+    rm -f /usr/local/bin/vaultscope-cli
+    rm -f /usr/bin/statistics
+    rm -f /usr/bin/vaultscope
     print_done
+    
+    # Clean PM2 processes if exists
+    if command -v pm2 &> /dev/null; then
+        print_progress "Cleaning PM2 processes"
+        pm2 delete statistics-server 2>/dev/null || true
+        pm2 delete statistics-client 2>/dev/null || true
+        pm2 delete vaultscope-server 2>/dev/null || true
+        pm2 delete vaultscope-client 2>/dev/null || true
+        pm2 save 2>/dev/null || true
+        print_done
+    fi
     
     # Clean old log files but keep directory for current install
     if [ -d "$LOG_DIR" ]; then
@@ -837,6 +872,7 @@ install_cli_tool() {
     
     print_section "Installing CLI Tool"
     
+    # Create CLI wrapper script
     cat > /usr/local/bin/statistics << 'EOF'
 #!/bin/bash
 cd /var/www/vaultscope-statistics
@@ -844,6 +880,45 @@ node cli.js "$@" 2>/dev/null || echo "CLI not configured. Use systemctl to manag
 EOF
     
     chmod +x /usr/local/bin/statistics
+    
+    # Create configuration file for CLI
+    mkdir -p "$CONFIG_DIR"
+    
+    # Determine URLs based on domain configuration
+    local api_url="http://localhost:4000"
+    local client_url="http://localhost:3000"
+    
+    if [ -n "$API_DOMAIN" ]; then
+        api_url="http://$API_DOMAIN"
+        [ "$USE_SSL" = true ] && api_url="https://$API_DOMAIN"
+    fi
+    
+    if [ -n "$CLIENT_DOMAIN" ]; then
+        client_url="http://$CLIENT_DOMAIN"
+        [ "$USE_SSL" = true ] && client_url="https://$CLIENT_DOMAIN"
+    fi
+    
+    cat > "$CONFIG_DIR/config.json" << EOF
+{
+  "installPath": "$INSTALL_DIR",
+  "installDate": "$(date -Iseconds)",
+  "platform": "$(uname -s)",
+  "components": [$([ "$INSTALL_SERVER" = true ] && echo '"server"')$([ "$INSTALL_SERVER" = true ] && [ "$INSTALL_CLIENT" = true ] && echo ',')$([ "$INSTALL_CLIENT" = true ] && echo '"client"')],
+  "serviceManager": "systemd",
+  "server": {
+    "path": "$INSTALL_DIR",
+    "url": "$api_url",
+    "port": 4000,
+    "apiKeyFile": "$CONFIG_DIR/api.key"
+  },
+  "client": {
+    "path": "$INSTALL_DIR",
+    "url": "$client_url",
+    "port": 3000
+  }
+}
+EOF
+    
     print_success "CLI tool installed as 'statistics'"
 }
 

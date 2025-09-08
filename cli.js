@@ -8,9 +8,9 @@ const os = require('os');
 const VERSION = '2.0.0';
 const CONFIG_FILE = path.join(
     os.platform() === 'win32' 
-        ? path.join(process.env.PROGRAMDATA || 'C:\\ProgramData', 'VaultScope')
-        : '/etc/vaultscope',
-    'statistics.json'
+        ? path.join(process.env.PROGRAMDATA || 'C:\\ProgramData', 'vaultscope-statistics')
+        : '/etc/vaultscope-statistics',
+    'config.json'
 );
 
 class VaultScopeCLI {
@@ -52,25 +52,25 @@ class VaultScopeCLI {
 
     printHelp() {
         this.printHeader();
-        console.log('Usage: vaultscope <command> [options]\n');
+        console.log('Usage: statistics <command> [options]\n');
         console.log('Commands:');
-        console.log('  statistics, stats        Display installation information');
+        console.log('  status                   Show service status');
         console.log('  start [component]        Start services (server/client/all)');
         console.log('  stop [component]         Stop services (server/client/all)');
         console.log('  restart [component]      Restart services (server/client/all)');
-        console.log('  status                   Show service status');
         console.log('  logs [component]         View logs (server/client/all)');
         console.log('  config                   Show configuration');
+        console.log('  info                     Display installation information');
         console.log('  apikey                   Manage API keys');
         console.log('  update                   Update VaultScope Statistics');
-        console.log('  uninstall statistics     Uninstall VaultScope Statistics');
+        console.log('  uninstall                Uninstall VaultScope Statistics');
         console.log('  version, -v              Show version');
         console.log('  help, -h                 Show this help message');
         console.log('\nExamples:');
-        console.log('  vaultscope statistics           # Show installation info');
-        console.log('  vaultscope start server         # Start server only');
-        console.log('  vaultscope logs client          # View client logs');
-        console.log('  vaultscope uninstall statistics # Remove everything');
+        console.log('  statistics status               # Show service status');
+        console.log('  statistics start server         # Start server only');
+        console.log('  statistics logs client          # View client logs');
+        console.log('  statistics uninstall            # Remove everything');
         console.log('\nConfiguration file:', CONFIG_FILE);
     }
 
@@ -122,25 +122,27 @@ class VaultScopeCLI {
         console.log('\n🔄 Service Status:\n');
         
         try {
-            if (this.config?.serviceManager === 'systemd') {
-                if (this.config.components.includes('server')) {
-                    const serverStatus = this.getSystemdStatus('vaultscope-server');
+            // Always try to check systemd services, even without config
+            if (!this.config || this.config?.serviceManager === 'systemd') {
+                // Check both services if no config or check configured components
+                if (!this.config || this.config.components.includes('server')) {
+                    const serverStatus = this.getSystemdStatus('statistics-server');
                     console.log(`  Server: ${serverStatus}`);
                 }
-                if (this.config.components.includes('client')) {
-                    const clientStatus = this.getSystemdStatus('vaultscope-client');
+                if (!this.config || this.config.components.includes('client')) {
+                    const clientStatus = this.getSystemdStatus('statistics-client');
                     console.log(`  Client: ${clientStatus}`);
                 }
             } else if (this.config?.serviceManager === 'pm2') {
                 const pm2List = execSync('pm2 list --no-color', { encoding: 'utf8' });
                 
                 if (this.config.components.includes('server')) {
-                    const serverRunning = pm2List.includes('vaultscope-server') && 
+                    const serverRunning = pm2List.includes('statistics-server') && 
                                         pm2List.includes('online');
                     console.log(`  Server: ${serverRunning ? '✅ Running' : '❌ Stopped'}`);
                 }
                 if (this.config.components.includes('client')) {
-                    const clientRunning = pm2List.includes('vaultscope-client') && 
+                    const clientRunning = pm2List.includes('statistics-client') && 
                                         pm2List.includes('online');
                     console.log(`  Client: ${clientRunning ? '✅ Running' : '❌ Stopped'}`);
                 }
@@ -168,26 +170,23 @@ class VaultScopeCLI {
     }
 
     startService(component = 'all') {
-        if (!this.config) {
-            console.error('❌ VaultScope Statistics is not installed');
-            return;
-        }
+        // Allow starting services even without config
+        const components = component === 'all' ? ['server', 'client'] : [component];
 
         console.log(`Starting ${component}...`);
         
-        const components = component === 'all' ? this.config.components : [component];
-        
         components.forEach(comp => {
-            if (!this.config.components.includes(comp)) {
-                console.log(`  ${comp}: Not installed`);
+            if (this.config && !this.config.components.includes(comp)) {
+                console.log(`  ${comp}: Not configured`);
                 return;
             }
             
             try {
-                if (this.config.serviceManager === 'systemd') {
-                    execSync(`sudo systemctl start vaultscope-${comp}`, { stdio: 'inherit' });
+                // Default to systemd
+                if (!this.config || this.config.serviceManager === 'systemd') {
+                    execSync(`sudo systemctl start statistics-${comp}`, { stdio: 'inherit' });
                 } else if (this.config.serviceManager === 'pm2') {
-                    execSync(`pm2 start vaultscope-${comp}`, { stdio: 'inherit' });
+                    execSync(`pm2 start statistics-${comp}`, { stdio: 'inherit' });
                 }
                 console.log(`  ${comp}: ✅ Started`);
             } catch (error) {
@@ -197,26 +196,23 @@ class VaultScopeCLI {
     }
 
     stopService(component = 'all') {
-        if (!this.config) {
-            console.error('❌ VaultScope Statistics is not installed');
-            return;
-        }
+        // Allow stopping services even without config
+        const components = component === 'all' ? ['server', 'client'] : [component];
 
         console.log(`Stopping ${component}...`);
         
-        const components = component === 'all' ? this.config.components : [component];
-        
         components.forEach(comp => {
-            if (!this.config.components.includes(comp)) {
-                console.log(`  ${comp}: Not installed`);
+            if (this.config && !this.config.components.includes(comp)) {
+                console.log(`  ${comp}: Not configured`);
                 return;
             }
             
             try {
-                if (this.config.serviceManager === 'systemd') {
-                    execSync(`sudo systemctl stop vaultscope-${comp}`, { stdio: 'inherit' });
+                // Default to systemd
+                if (!this.config || this.config.serviceManager === 'systemd') {
+                    execSync(`sudo systemctl stop statistics-${comp}`, { stdio: 'inherit' });
                 } else if (this.config.serviceManager === 'pm2') {
-                    execSync(`pm2 stop vaultscope-${comp}`, { stdio: 'inherit' });
+                    execSync(`pm2 stop statistics-${comp}`, { stdio: 'inherit' });
                 }
                 console.log(`  ${comp}: ✅ Stopped`);
             } catch (error) {
@@ -226,26 +222,23 @@ class VaultScopeCLI {
     }
 
     restartService(component = 'all') {
-        if (!this.config) {
-            console.error('❌ VaultScope Statistics is not installed');
-            return;
-        }
+        // Allow restarting services even without config
+        const components = component === 'all' ? ['server', 'client'] : [component];
 
         console.log(`Restarting ${component}...`);
         
-        const components = component === 'all' ? this.config.components : [component];
-        
         components.forEach(comp => {
-            if (!this.config.components.includes(comp)) {
-                console.log(`  ${comp}: Not installed`);
+            if (this.config && !this.config.components.includes(comp)) {
+                console.log(`  ${comp}: Not configured`);
                 return;
             }
             
             try {
-                if (this.config.serviceManager === 'systemd') {
-                    execSync(`sudo systemctl restart vaultscope-${comp}`, { stdio: 'inherit' });
+                // Default to systemd
+                if (!this.config || this.config.serviceManager === 'systemd') {
+                    execSync(`sudo systemctl restart statistics-${comp}`, { stdio: 'inherit' });
                 } else if (this.config.serviceManager === 'pm2') {
-                    execSync(`pm2 restart vaultscope-${comp}`, { stdio: 'inherit' });
+                    execSync(`pm2 restart statistics-${comp}`, { stdio: 'inherit' });
                 }
                 console.log(`  ${comp}: ✅ Restarted`);
             } catch (error) {
@@ -267,10 +260,10 @@ class VaultScopeCLI {
             } else {
                 console.log('Use these commands to view logs:');
                 if (this.config.components.includes('server')) {
-                    console.log('  Server: sudo journalctl -u vaultscope-server -f');
+                    console.log('  Server: sudo journalctl -u statistics-server -f');
                 }
                 if (this.config.components.includes('client')) {
-                    console.log('  Client: sudo journalctl -u vaultscope-client -f');
+                    console.log('  Client: sudo journalctl -u statistics-client -f');
                 }
             }
         } else {
@@ -281,9 +274,9 @@ class VaultScopeCLI {
             
             console.log(`Viewing ${component} logs...\n`);
             if (this.config.serviceManager === 'systemd') {
-                spawn('journalctl', ['-u', `vaultscope-${component}`, '-f'], { stdio: 'inherit' });
+                spawn('journalctl', ['-u', `statistics-${component}`, '-f'], { stdio: 'inherit' });
             } else if (this.config.serviceManager === 'pm2') {
-                spawn('pm2', ['logs', `vaultscope-${component}`], { stdio: 'inherit' });
+                spawn('pm2', ['logs', `statistics-${component}`], { stdio: 'inherit' });
             }
         }
     }
@@ -363,9 +356,9 @@ class VaultScopeCLI {
                     console.log('Stopping and removing systemd services...');
                     this.config.components.forEach(comp => {
                         try {
-                            execSync(`sudo systemctl stop vaultscope-${comp}`, { stdio: 'pipe' });
-                            execSync(`sudo systemctl disable vaultscope-${comp}`, { stdio: 'pipe' });
-                            execSync(`sudo rm -f /etc/systemd/system/vaultscope-${comp}.service`, { stdio: 'pipe' });
+                            execSync(`sudo systemctl stop statistics-${comp}`, { stdio: 'pipe' });
+                            execSync(`sudo systemctl disable statistics-${comp}`, { stdio: 'pipe' });
+                            execSync(`sudo rm -f /etc/systemd/system/statistics-${comp}.service`, { stdio: 'pipe' });
                         } catch {}
                     });
                     execSync('sudo systemctl daemon-reload', { stdio: 'pipe' });
@@ -373,7 +366,7 @@ class VaultScopeCLI {
                     console.log('Stopping and removing PM2 processes...');
                     this.config.components.forEach(comp => {
                         try {
-                            execSync(`pm2 delete vaultscope-${comp}`, { stdio: 'pipe' });
+                            execSync(`pm2 delete statistics-${comp}`, { stdio: 'pipe' });
                         } catch {}
                     });
                     execSync('pm2 save', { stdio: 'pipe' });
@@ -461,9 +454,14 @@ class VaultScopeCLI {
         const command = this.args[0];
         const subCommand = this.args[1];
         
+        // For status command, always show it even without config
+        if (command === 'status' || !command) {
+            this.showStatus();
+            return;
+        }
+        
         switch (command) {
-            case 'statistics':
-            case 'stats':
+            case 'info':
                 this.showStatistics();
                 break;
                 
@@ -477,10 +475,6 @@ class VaultScopeCLI {
                 
             case 'restart':
                 this.restartService(subCommand);
-                break;
-                
-            case 'status':
-                this.showStatus();
                 break;
                 
             case 'logs':
@@ -500,11 +494,7 @@ class VaultScopeCLI {
                 break;
                 
             case 'uninstall':
-                if (subCommand === 'statistics') {
-                    await this.uninstall();
-                } else {
-                    console.error('Usage: vaultscope uninstall statistics');
-                }
+                await this.uninstall();
                 break;
                 
             case 'version':
@@ -522,7 +512,7 @@ class VaultScopeCLI {
                 
             default:
                 console.error(`Unknown command: ${command}`);
-                console.log('Run "vaultscope help" for available commands');
+                console.log('Run "statistics help" for available commands');
                 process.exit(1);
         }
     }
