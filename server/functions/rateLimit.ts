@@ -24,8 +24,16 @@ const invalidKeyLimiter = rateLimit({
   message: "Too many requests without valid API key. Maximum 10 requests per minute allowed.",
   // Skip IP validation since we're only trusting loopback proxy
   skip: (req) => false,
-  // Use default key generator which respects Express trust proxy setting
-  keyGenerator: (req) => req.ip || 'unknown'
+  // Custom key generator that handles both IPv4 and IPv6
+  keyGenerator: (req) => {
+    // Get the IP address (supports both IPv4 and IPv6)
+    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    // For IPv6, normalize the address by removing the ::ffff: prefix for IPv4-mapped addresses
+    if (ip.startsWith('::ffff:')) {
+      return ip.substring(7); // Return just the IPv4 part
+    }
+    return ip;
+  }
 });
 
 // Main rate limiting middleware that checks for API key validity
