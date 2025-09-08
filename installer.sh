@@ -643,10 +643,12 @@ RATELIMIT_FILE_EOF
         npm install --silent >/dev/null 2>&1 || npm install >/dev/null 2>&1 || true
         print_done
         
-        # Create initial database file for client
+        # Create initial database file for client in both locations
         print_progress "Creating client database"
-        mkdir -p data
+        # Create in client directory for build
         echo '{"users":[],"nodes":[],"categories":[],"roles":[]}' > database.json
+        # Also create in parent directory for runtime
+        echo '{"users":[],"nodes":[],"categories":[],"roles":[]}' > ../database.json
         print_done
         
         print_progress "Building client application"
@@ -754,7 +756,7 @@ After=network.target
 [Service]
 Type=simple
 User=www-data
-WorkingDirectory=$INSTALL_DIR/client
+WorkingDirectory=$INSTALL_DIR
 Environment="NODE_ENV=production"
 Environment="PORT=4001"
 ExecStart=/bin/bash -c "$next_cmd"
