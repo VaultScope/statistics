@@ -890,46 +890,185 @@ EOF
 create_uninstaller() {
     cat > /usr/local/bin/statistics-uninstall << 'UNINSTALLER_EOF'
 #!/bin/bash
+
+# VaultScope Statistics Complete Uninstaller v3.0
 set -e
 
-# Quick uninstaller for VaultScope Statistics
-echo "VaultScope Statistics Uninstaller"
-echo "================================="
-echo ""
-read -p "Remove VaultScope Statistics completely? (yes/no): " confirm
-[ "$confirm" != "yes" ] && exit 0
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
 
-echo "Removing services..."
-for service in statistics-server statistics-client vaultscope-server vaultscope-client; do
+print_header() {
+    clear
+    echo -e "${CYAN}"
+    echo "╔══════════════════════════════════════════════════════════════════╗"
+    echo "║           VaultScope Statistics Uninstaller v3.0                ║"
+    echo "╚══════════════════════════════════════════════════════════════════╝"
+    echo -e "${NC}\n"
+}
+
+print_progress() { echo -en "${CYAN}►${NC} $1..."; }
+print_done() { echo -e " ${GREEN}done${NC}"; }
+
+print_header
+
+# Check if running as root
+if [ "$EUID" -ne 0 ]; then 
+    echo -e "${RED}✗${NC} This script must be run as root"
+    echo "Please run: sudo statistics-uninstall"
+    exit 1
+fi
+
+# Confirm uninstallation
+echo -e "${RED}WARNING: This will completely remove VaultScope Statistics!${NC}\n"
+echo "The following will be removed:"
+echo "  • All services (statistics-server, statistics-client)"
+echo "  • Installation directories"
+echo "  • Configuration files"
+echo "  • Log files"
+echo "  • Web server configurations"
+echo "  • CLI tools"
+echo ""
+read -p "Are you ABSOLUTELY sure? Type 'yes' to confirm: " confirm
+
+if [ "$confirm" != "yes" ]; then
+    echo -e "\n${YELLOW}Uninstall cancelled.${NC}"
+    exit 0
+fi
+
+echo -e "\n${CYAN}Starting complete uninstallation...${NC}\n"
+
+# Stop and remove ALL services
+print_progress "Stopping and removing ALL services"
+services=(
+    "statistics-server" "statistics-client"
+    "vaultscope-server" "vaultscope-client"
+    "vaultscope-statistics-server" "vaultscope-statistics-client"
+)
+for service in "${services[@]}"; do
     systemctl stop $service 2>/dev/null || true
     systemctl disable $service 2>/dev/null || true
     systemctl mask $service 2>/dev/null || true
 done
 
+# Remove ALL service files from ALL locations
 rm -f /etc/systemd/system/statistics-*.service
 rm -f /etc/systemd/system/vaultscope-*.service
 rm -f /lib/systemd/system/statistics-*.service
 rm -f /lib/systemd/system/vaultscope-*.service
+rm -f /usr/lib/systemd/system/statistics-*.service
+rm -f /usr/lib/systemd/system/vaultscope-*.service
+rm -f /run/systemd/system/statistics-*.service
+rm -f /run/systemd/system/vaultscope-*.service
+
+# Force systemd to forget services
 systemctl daemon-reload 2>/dev/null || true
 systemctl reset-failed 2>/dev/null || true
 
-echo "Removing files..."
+# Unmask services
+for service in "${services[@]}"; do
+    systemctl unmask $service 2>/dev/null || true
+done
+print_done
+
+# Remove Nginx configurations
+print_progress "Removing ALL Nginx configurations"
+rm -f /etc/nginx/sites-enabled/statistics-*
+rm -f /etc/nginx/sites-enabled/vaultscope-*
+rm -f /etc/nginx/sites-enabled/*cptcr*
+rm -f /etc/nginx/sites-available/statistics-*
+rm -f /etc/nginx/sites-available/vaultscope-*
+rm -f /etc/nginx/sites-available/*cptcr*
+if systemctl is-active nginx > /dev/null 2>&1; then
+    nginx -t > /dev/null 2>&1 && systemctl reload nginx > /dev/null 2>&1 || true
+fi
+print_done
+
+# Remove Apache configurations
+print_progress "Removing ALL Apache configurations"
+a2dissite statistics-* 2>/dev/null || true
+a2dissite vaultscope-* 2>/dev/null || true
+rm -f /etc/apache2/sites-available/statistics-*
+rm -f /etc/apache2/sites-available/vaultscope-*
+rm -f /etc/apache2/sites-available/*cptcr*
+rm -f /etc/httpd/conf.d/statistics-*
+rm -f /etc/httpd/conf.d/vaultscope-*
+if systemctl is-active apache2 > /dev/null 2>&1; then
+    systemctl reload apache2 > /dev/null 2>&1 || true
+fi
+if systemctl is-active httpd > /dev/null 2>&1; then
+    systemctl reload httpd > /dev/null 2>&1 || true
+fi
+print_done
+
+# Remove Cloudflared configurations
+print_progress "Removing Cloudflared configurations"
+rm -f /etc/cloudflared/*statistics*
+rm -f /etc/cloudflared/*vaultscope*
+rm -f /etc/cloudflared/config.yml
+systemctl stop cloudflared 2>/dev/null || true
+print_done
+
+# Remove PM2 processes
+if command -v pm2 &> /dev/null; then
+    print_progress "Removing PM2 processes"
+    pm2 delete statistics-server 2>/dev/null || true
+    pm2 delete statistics-client 2>/dev/null || true
+    pm2 delete vaultscope-server 2>/dev/null || true
+    pm2 delete vaultscope-client 2>/dev/null || true
+    pm2 save 2>/dev/null || true
+    print_done
+fi
+
+# Remove ALL installation directories
+print_progress "Removing ALL installation directories"
 rm -rf /var/www/vaultscope-statistics
 rm -rf /var/www/statistics
+rm -rf /var/www/vaultscope
+rm -rf /opt/vaultscope-statistics
+rm -rf /opt/statistics
+rm -rf /opt/vaultscope
 rm -rf /etc/vaultscope-statistics
 rm -rf /etc/vaultscope
+rm -rf /etc/statistics
 rm -rf /var/log/vaultscope-statistics
+rm -rf /var/log/vaultscope
+rm -rf /var/log/statistics
+rm -rf /var/backups/vaultscope-statistics
+print_done
+
+# Remove ALL CLI tools and binaries
+print_progress "Removing ALL CLI tools"
 rm -f /usr/local/bin/statistics
 rm -f /usr/local/bin/statistics-uninstall
+rm -f /usr/local/bin/vaultscope
+rm -f /usr/local/bin/vaultscope-cli
+rm -f /usr/local/bin/vaultscope-statistics
+rm -f /usr/bin/statistics
+rm -f /usr/bin/vaultscope
+rm -f /usr/bin/vaultscope-statistics
+print_done
 
-echo "Removing web server configs..."
-rm -f /etc/nginx/sites-*/statistics-*
-rm -f /etc/nginx/sites-*/vaultscope-*
-rm -f /etc/apache2/sites-*/statistics-*
-rm -f /etc/apache2/sites-*/vaultscope-*
+# Remove cron jobs
+print_progress "Removing cron jobs"
+crontab -l 2>/dev/null | grep -v "statistics" | grep -v "vaultscope" | crontab - 2>/dev/null || true
+print_done
 
+# Clean npm cache
+print_progress "Cleaning npm cache"
+npm cache clean --force 2>/dev/null || true
+print_done
+
+echo -e "\n${GREEN}════════════════════════════════════════════════════════════════════${NC}"
+echo -e "${GREEN}  ✓ VaultScope Statistics has been completely uninstalled!${NC}"
+echo -e "${GREEN}════════════════════════════════════════════════════════════════════${NC}\n"
+
+echo "All components have been removed from your system."
+echo "Thank you for using VaultScope Statistics."
 echo ""
-echo "✓ VaultScope Statistics has been uninstalled!"
 UNINSTALLER_EOF
     chmod +x /usr/local/bin/statistics-uninstall
 }
