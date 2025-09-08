@@ -8,26 +8,43 @@ import { logApiRequest } from "./logs/apiLogger";
 // Look for apiKeys.json in the root project directory
 const apiKeysPath = path.resolve(process.cwd(), "apiKeys.json");
 
-// Cache and reload every 15s
+// Cache and reload every 15s with thread-safe loading
 let cachedKeys: Key[] = [];
 let lastLoad = 0;
+let loadingPromise: Promise<Key[]> | null = null;
 const CACHE_TTL = 15 * 1000;
 
 async function loadKeys(): Promise<Key[]> {
     const now = Date.now();
+    
+    // Return cached keys if still valid
     if (cachedKeys.length > 0 && now - lastLoad < CACHE_TTL) {
         return cachedKeys;
     }
-
-    try {
-        const data = await fs.readFile(apiKeysPath, "utf-8");
-        cachedKeys = JSON.parse(data) as Key[];
-        lastLoad = now;
-        return cachedKeys;
-    } catch {
-        cachedKeys = [];
-        return [];
+    
+    // If already loading, wait for that promise
+    if (loadingPromise) {
+        return loadingPromise;
     }
+
+    // Start new loading process
+    loadingPromise = (async () => {
+        try {
+            const data = await fs.readFile(apiKeysPath, "utf-8");
+            const newKeys = JSON.parse(data) as Key[];
+            cachedKeys = newKeys;
+            lastLoad = Date.now();
+            return newKeys;
+        } catch (error) {
+            console.error('Failed to load API keys:', error);
+            // Return existing cache if available, otherwise empty array
+            return cachedKeys.length > 0 ? cachedKeys : [];
+        } finally {
+            loadingPromise = null;
+        }
+    })();
+    
+    return loadingPromise;
 }
 
 interface AuthRequest extends Request {

@@ -12,9 +12,20 @@ import Permissions from "./types/api/keys/permissions";
 import { getApiLogs, getApiKeyStats, clearApiLogs } from "./functions/logs/apiLogger";
 import alertsRouter from "./routes/alerts";
 import alertEngine from "./services/alertEngine";
+import { compressionMiddleware } from "./middleware/compression";
+import { performanceMiddleware, performanceMonitor } from "./middleware/performance";
+import config, { validateConfig } from "./config/environment";
+
+// Validate configuration on startup
+try {
+  validateConfig();
+} catch (error) {
+  console.error('Configuration error:', error);
+  process.exit(1);
+}
 
 const app = express();
-const port = 4000;
+const port = config.server.port;
 
 const colors = {
     reset: '\x1b[0m',
@@ -52,6 +63,12 @@ const log = {
 app.set('trust proxy', 'loopback');
 log.info('Trust proxy set to loopback');
 
+// Apply compression middleware
+app.use(compressionMiddleware);
+
+// Apply performance monitoring middleware
+app.use(performanceMiddleware);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());
@@ -76,7 +93,13 @@ app.use((req: Request, res: Response, next) => {
 });
 
 app.get("/health", (req, res) => {
-    res.status(200).send("OK");
+    const health = performanceMonitor.getHealthStatus();
+    res.status(health.status === 'healthy' ? 200 : 503).json(health);
+});
+
+app.get("/metrics", authenticate(["viewStats"]), (req: AuthRequest, res: Response) => {
+    const metrics = performanceMonitor.getMetrics();
+    res.status(200).json(metrics);
 });
 
 app.post("/api/keys", authenticate(["createApiKey"]), async (req: AuthRequest, res: Response) => {
@@ -282,58 +305,93 @@ import si from 'systeminformation';
 
 app.get("/data", authenticate(["viewStats"]), async (req: AuthRequest, res: Response) => {
     log.info('Fetching complete system information');
-    const data = {
-        cpu: await systeminfo.getCPUInfo(), 
-        gpu: await systeminfo.getGPUInfo(),
-        disk: await systeminfo.getDiskInfo(),
-        ram: await systeminfo.getRAMInfo(),
-        mainboard: await systeminfo.getMainboardInfo(),
-        os: await systeminfo.getOSInfo()
-    };
-    log.success('System information retrieved');
-    res.status(200).json(data);
+    try {
+        const data = {
+            cpu: await systeminfo.getCPUInfo(), 
+            gpu: await systeminfo.getGPUInfo(),
+            disk: await systeminfo.getDiskInfo(),
+            ram: await systeminfo.getRAMInfo(),
+            mainboard: await systeminfo.getMainboardInfo(),
+            os: await systeminfo.getOSInfo()
+        };
+        log.success('System information retrieved');
+        res.status(200).json(data);
+    } catch (error) {
+        log.error(`Failed to fetch system information: ${error}`);
+        res.status(500).json({ error: 'Failed to fetch system information' });
+    }
 });
 
 app.get("/data/cpu", authenticate(["viewStats"]), async (req: AuthRequest, res: Response) => {
     log.info('Fetching CPU information');
-    const data: SYSTEM.CPU = await systeminfo.getCPUInfo();
-    log.success(`CPU info retrieved: ${data.manufacturer} ${data.brand}`);
-    res.status(200).json(data);
+    try {
+        const data: SYSTEM.CPU = await systeminfo.getCPUInfo();
+        log.success(`CPU info retrieved: ${data.manufacturer} ${data.brand}`);
+        res.status(200).json(data);
+    } catch (error) {
+        log.error(`Failed to fetch CPU information: ${error}`);
+        res.status(500).json({ error: 'Failed to fetch CPU information' });
+    }
 });
 
 app.get("/data/gpu", authenticate(["viewStats"]), async (req: AuthRequest, res: Response) => {
     log.info('Fetching GPU information');
-    const data: SYSTEM.Graphics[] = await systeminfo.getGPUInfo();
-    log.success(`GPU info retrieved: ${data.length} GPU(s) found`);
-    res.status(200).json(data);
+    try {
+        const data: SYSTEM.Graphics[] = await systeminfo.getGPUInfo();
+        log.success(`GPU info retrieved: ${data.length} GPU(s) found`);
+        res.status(200).json(data);
+    } catch (error) {
+        log.error(`Failed to fetch GPU information: ${error}`);
+        res.status(500).json({ error: 'Failed to fetch GPU information' });
+    }
 });
 
 app.get("/data/disk", authenticate(["viewStats"]), async (req: AuthRequest, res: Response) => {
     log.info('Fetching disk information');
-    const data: SYSTEM.DiskLayout[] = await systeminfo.getDiskInfo();
-    log.success(`Disk info retrieved: ${data.length} disk(s) found`);
-    res.status(200).json(data);
+    try {
+        const data: SYSTEM.DiskLayout[] = await systeminfo.getDiskInfo();
+        log.success(`Disk info retrieved: ${data.length} disk(s) found`);
+        res.status(200).json(data);
+    } catch (error) {
+        log.error(`Failed to fetch disk information: ${error}`);
+        res.status(500).json({ error: 'Failed to fetch disk information' });
+    }
 });
 
 app.get("/data/ram", authenticate(["viewStats"]), async (req: AuthRequest, res: Response) => {
     log.info('Fetching RAM information');
-    const data: SYSTEM.RAM = await systeminfo.getRAMInfo();
-    log.success(`RAM info retrieved: ${(data.total / 1073741824).toFixed(2)}GB total`);
-    res.status(200).json(data);
+    try {
+        const data: SYSTEM.RAM = await systeminfo.getRAMInfo();
+        log.success(`RAM info retrieved: ${(data.total / 1073741824).toFixed(2)}GB total`);
+        res.status(200).json(data);
+    } catch (error) {
+        log.error(`Failed to fetch RAM information: ${error}`);
+        res.status(500).json({ error: 'Failed to fetch RAM information' });
+    }
 });
 
 app.get("/data/mainboard", authenticate(["viewStats"]), async (req: AuthRequest, res: Response) => {
     log.info('Fetching mainboard information');
-    const data: SYSTEM.Mainboard = await systeminfo.getMainboardInfo();
-    log.success(`Mainboard info retrieved: ${data.manufacturer} ${data.model}`);
-    res.status(200).json(data);
+    try {
+        const data: SYSTEM.Mainboard = await systeminfo.getMainboardInfo();
+        log.success(`Mainboard info retrieved: ${data.manufacturer} ${data.model}`);
+        res.status(200).json(data);
+    } catch (error) {
+        log.error(`Failed to fetch mainboard information: ${error}`);
+        res.status(500).json({ error: 'Failed to fetch mainboard information' });
+    }
 }); 
 
 app.get("/data/os", authenticate(["viewStats"]), async (req: AuthRequest, res: Response) => {
     log.info('Fetching OS information');
-    const data: SYSTEM.OS = await systeminfo.getOSInfo();
-    log.success(`OS info retrieved: ${data.platform} ${data.distro}`);
-    res.status(200).json(data);
+    try {
+        const data: SYSTEM.OS = await systeminfo.getOSInfo();
+        log.success(`OS info retrieved: ${data.platform} ${data.distro}`);
+        res.status(200).json(data);
+    } catch (error) {
+        log.error(`Failed to fetch OS information: ${error}`);
+        res.status(500).json({ error: 'Failed to fetch OS information' });
+    }
 });
 
 app.get("/stats/cpu", authenticate(["viewStats"]), async (req: AuthRequest, res: Response) => {
@@ -387,11 +445,19 @@ app.get("/stats/memory", authenticate(["viewStats"]), async (req: AuthRequest, r
     }
 });
 
-interface NetworkStatsCache {
-    stats: any;
-    timestamp: number;
-}
+import { NetworkStats, NetworkStatsCache, NetworkInterfaceTraffic, NetworkTrafficData } from "../types/network";
+
 const networkStatsHistory = new Map<string, NetworkStatsCache>();
+const MAX_NETWORK_STATS_ENTRIES = parseInt(process.env.MAX_NETWORK_STATS_ENTRIES || '100');
+
+// Cleanup old network stats entries periodically
+setInterval(() => {
+  if (networkStatsHistory.size > MAX_NETWORK_STATS_ENTRIES) {
+    const entriesToDelete = networkStatsHistory.size - MAX_NETWORK_STATS_ENTRIES;
+    const keysToDelete = Array.from(networkStatsHistory.keys()).slice(0, entriesToDelete);
+    keysToDelete.forEach(key => networkStatsHistory.delete(key));
+  }
+}, 60000); // Run every minute
 
 app.get("/stats/network", authenticate(["viewStats"]), async (req: AuthRequest, res: Response) => {
     log.info('Fetching network statistics');
@@ -417,12 +483,12 @@ app.get("/stats/network/traffic", authenticate(["viewStats"]), async (req: AuthR
         const previousData = networkStatsHistory.get(clientId);
         const currentTime = Date.now();
         
-        let trafficData = {
+        let trafficData: NetworkTrafficData = {
             rx_sec: 0,
             tx_sec: 0,
             rx_mbps: 0,
             tx_mbps: 0,
-            interfaces: [] as any[]
+            interfaces: [] as NetworkInterfaceTraffic[]
         };
         
         if (currentStats && currentStats.length > 0) {
@@ -440,7 +506,7 @@ app.get("/stats/network/traffic", authenticate(["viewStats"]), async (req: AuthR
                 if (timeDiff > 0) {
                     const previousMainInterface = previousData.stats[0];
                     
-                    if (previousMainInterface) {
+                    if (previousMainInterface && mainInterface) {
                         const rxBytesDiff = mainInterface.rx_bytes - previousMainInterface.rx_bytes;
                         const txBytesDiff = mainInterface.tx_bytes - previousMainInterface.tx_bytes;
                         
@@ -453,8 +519,8 @@ app.get("/stats/network/traffic", authenticate(["viewStats"]), async (req: AuthR
                 }
             }
             
-            trafficData.interfaces = currentStats.map((iface: any, index: number) => {
-                let ifaceData: any = {
+            trafficData.interfaces = currentStats.map((iface: NetworkStats, index: number) => {
+                let ifaceData: NetworkInterfaceTraffic = {
                     iface: iface.iface,
                     rx_bytes: iface.rx_bytes,
                     tx_bytes: iface.tx_bytes,
@@ -468,7 +534,7 @@ app.get("/stats/network/traffic", authenticate(["viewStats"]), async (req: AuthR
                     ifaceData.rx_sec = iface.rx_sec;
                     ifaceData.tx_sec = iface.tx_sec || 0;
                     ifaceData.rx_mbps = (iface.rx_sec * 8) / 1000000;
-                    ifaceData.tx_mbps = (iface.tx_sec * 8) / 1000000;
+                    ifaceData.tx_mbps = ((iface.tx_sec || 0) * 8) / 1000000;
                 }
                 else if (previousData && previousData.stats && previousData.stats[index]) {
                     const timeDiff = (currentTime - previousData.timestamp) / 1000;
@@ -593,6 +659,8 @@ import { NetworkPacket } from "./types/logs/network";
 let sniffer: NetworkSniffer | null = null;
 const packetLogs: NetworkPacket[] = [];
 let allPacketLogs: NetworkPacket[] = [];
+const MAX_PACKET_LOGS = parseInt(process.env.MAX_PACKET_LOGS || '1000');
+const MAX_ALL_PACKET_LOGS = parseInt(process.env.MAX_ALL_PACKET_LOGS || '100000');
 
 app.post("/network/sniffer/start", authenticate(["viewStats"]), (req: AuthRequest, res: Response) => {
   const interfaceName: unknown = req.body.interface;
@@ -616,8 +684,13 @@ app.post("/network/sniffer/start", authenticate(["viewStats"]), (req: AuthReques
     sniffer.onPacket((packet: NetworkPacket) => {
       packetLogs.push(packet);
       allPacketLogs.push(packet);
-      if (packetLogs.length > 1000) packetLogs.shift();
-      if (allPacketLogs.length > 100000) allPacketLogs.shift();
+      // Use configured limits to prevent memory leaks
+      while (packetLogs.length > MAX_PACKET_LOGS) {
+        packetLogs.shift();
+      }
+      while (allPacketLogs.length > MAX_ALL_PACKET_LOGS) {
+        allPacketLogs.shift();
+      }
     });
 
     log.success(`Network sniffer started on ${interfaceName.trim()}`);
@@ -682,8 +755,13 @@ app.listen(port, () => {
     console.log(`${colors.bgGreen}${colors.bright} SERVER STARTED ${colors.reset}`);
     console.log(`${colors.cyan}[SERVER]${colors.reset} Running at ${colors.bright}http://localhost:${port}${colors.reset}`);
     console.log(`${colors.yellow}[INFO]${colors.reset} Trust proxy: loopback | CORS: enabled | Rate limiting: active`);
+    console.log(`${colors.blue}[PERF]${colors.reset} Compression: enabled | Performance monitoring: active`);
     
     // Start the alert engine
     alertEngine.start();
     console.log(`${colors.green}[ALERTS]${colors.reset} Alert engine started - monitoring active`);
+    
+    // Start memory leak detection
+    performanceMonitor.detectMemoryLeaks();
+    console.log(`${colors.magenta}[MONITOR]${colors.reset} Memory leak detection: enabled`);
 });
