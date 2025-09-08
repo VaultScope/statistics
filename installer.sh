@@ -268,9 +268,13 @@ detect_existing_installation() {
         case $choice in
             1)
                 print_warning "Starting COMPLETE uninstallation..."
+                
+                # Don't redirect to log during uninstall
+                exec 2>&1
+                
                 cleanup_complete_installation
                 
-                # Remove ALL directories
+                # Remove ALL directories INCLUDING LOGS
                 print_progress "Removing ALL installation directories"
                 rm -rf /var/www/vaultscope-statistics
                 rm -rf /var/www/statistics
@@ -279,8 +283,6 @@ detect_existing_installation() {
                 rm -rf /opt/statistics
                 rm -rf /etc/vaultscope*
                 rm -rf /etc/statistics
-                rm -rf /var/log/vaultscope*
-                rm -rf /var/log/statistics
                 print_done
                 
                 # Remove ALL CLI tools
@@ -289,6 +291,13 @@ detect_existing_installation() {
                 rm -f /usr/local/bin/vaultscope*
                 rm -f /usr/bin/statistics*
                 rm -f /usr/bin/vaultscope*
+                print_done
+                
+                # Remove logs LAST
+                print_progress "Removing ALL log directories"
+                rm -rf /var/log/vaultscope-statistics
+                rm -rf /var/log/vaultscope
+                rm -rf /var/log/statistics
                 print_done
                 
                 print_success "✓ COMPLETE UNINSTALLATION FINISHED!"
@@ -1205,10 +1214,14 @@ rm -rf /opt/vaultscope
 rm -rf /etc/vaultscope-statistics
 rm -rf /etc/vaultscope
 rm -rf /etc/statistics
+rm -rf /var/backups/vaultscope-statistics
+print_done
+
+# Remove log directories separately
+print_progress "Removing ALL log directories"
 rm -rf /var/log/vaultscope-statistics
 rm -rf /var/log/vaultscope
 rm -rf /var/log/statistics
-rm -rf /var/backups/vaultscope-statistics
 print_done
 
 # Remove ALL CLI tools and binaries
@@ -1875,6 +1888,10 @@ if [ "$1" = "--uninstall" ] || [ "$1" = "-u" ]; then
     setup_colors
     check_root
     print_header
+    
+    echo "${YELLOW}This will COMPLETELY remove VaultScope Statistics!${NC}"
+    echo ""
+    
     cleanup_complete_installation
     
     # Remove ALL directories
@@ -1884,10 +1901,9 @@ if [ "$1" = "--uninstall" ] || [ "$1" = "-u" ]; then
     rm -rf /var/www/vaultscope
     rm -rf /opt/vaultscope*
     rm -rf /opt/statistics
-    rm -rf /etc/vaultscope*
+    rm -rf /etc/vaultscope-statistics
+    rm -rf /etc/vaultscope
     rm -rf /etc/statistics
-    rm -rf /var/log/vaultscope*
-    rm -rf /var/log/statistics
     print_done
     
     # Remove ALL CLI tools
@@ -1898,7 +1914,14 @@ if [ "$1" = "--uninstall" ] || [ "$1" = "-u" ]; then
     rm -f /usr/bin/vaultscope*
     print_done
     
-    print_success "COMPLETE UNINSTALL FINISHED!"
+    # Remove ALL log directories
+    print_progress "Removing ALL log directories"
+    rm -rf /var/log/vaultscope-statistics
+    rm -rf /var/log/vaultscope
+    rm -rf /var/log/statistics
+    print_done
+    
+    print_success "✓ COMPLETE UNINSTALL FINISHED!"
     echo ""
     echo "All VaultScope Statistics components have been removed."
     echo "You can now run the installer again for a fresh installation."
