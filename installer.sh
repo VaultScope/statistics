@@ -287,32 +287,78 @@ detect_existing_installation() {
 }
 
 cleanup_complete_installation() {
-    print_section "Removing ALL Existing Installations"
+    print_section "NUCLEAR Cleanup - Removing EVERYTHING"
     
-    # Stop and remove ALL possible services - MORE AGGRESSIVE
-    print_progress "Stopping and removing ALL services"
-    for service in statistics-server statistics-client vaultscope-server vaultscope-client vaultscope-statistics-server vaultscope-statistics-client; do
+    # KILL ALL NODE PROCESSES FIRST
+    print_progress "Killing all Node.js processes"
+    killall node 2>/dev/null || true
+    killall nodejs 2>/dev/null || true
+    print_done
+    
+    # ABSOLUTELY DESTROY ALL SERVICES
+    print_progress "DESTROYING all services completely"
+    
+    # List of ALL possible service names
+    local all_services=(
+        "statistics-server" "statistics-client"
+        "vaultscope-server" "vaultscope-client"
+        "vaultscope-statistics-server" "vaultscope-statistics-client"
+        "statistics" "vaultscope"
+    )
+    
+    for service in "${all_services[@]}"; do
+        # Stop it
         systemctl stop $service 2>/dev/null || true
+        systemctl stop $service.service 2>/dev/null || true
+        
+        # Kill it
+        systemctl kill $service 2>/dev/null || true
+        
+        # Disable it
         systemctl disable $service 2>/dev/null || true
+        systemctl disable $service.service 2>/dev/null || true
+        
+        # Mask it to prevent any startup
         systemctl mask $service 2>/dev/null || true
+        systemctl mask $service.service 2>/dev/null || true
     done
     
-    # Remove ALL service files from ALL locations
-    rm -f /etc/systemd/system/statistics-*.service
-    rm -f /etc/systemd/system/vaultscope-*.service
-    rm -f /lib/systemd/system/statistics-*.service
-    rm -f /lib/systemd/system/vaultscope-*.service
-    rm -f /usr/lib/systemd/system/statistics-*.service
-    rm -f /usr/lib/systemd/system/vaultscope-*.service
+    # REMOVE ALL SERVICE FILES FROM EVERYWHERE
+    print_progress "Removing ALL service files from EVERYWHERE"
     
-    # Force systemd to forget about these services completely
-    systemctl daemon-reload 2>/dev/null || true
-    systemctl reset-failed 2>/dev/null || true
+    # Find and remove ANY service file with our names
+    find /etc/systemd -name "*statistics*.service" -delete 2>/dev/null || true
+    find /etc/systemd -name "*vaultscope*.service" -delete 2>/dev/null || true
+    find /lib/systemd -name "*statistics*.service" -delete 2>/dev/null || true
+    find /lib/systemd -name "*vaultscope*.service" -delete 2>/dev/null || true
+    find /usr/lib/systemd -name "*statistics*.service" -delete 2>/dev/null || true
+    find /usr/lib/systemd -name "*vaultscope*.service" -delete 2>/dev/null || true
+    find /run/systemd -name "*statistics*.service" -delete 2>/dev/null || true
+    find /run/systemd -name "*vaultscope*.service" -delete 2>/dev/null || true
     
-    # Unmask services after cleanup
-    for service in statistics-server statistics-client; do
+    # Manual removal too
+    rm -rf /etc/systemd/system/statistics*.service*
+    rm -rf /etc/systemd/system/vaultscope*.service*
+    rm -rf /lib/systemd/system/statistics*.service*
+    rm -rf /lib/systemd/system/vaultscope*.service*
+    rm -rf /usr/lib/systemd/system/statistics*.service*
+    rm -rf /usr/lib/systemd/system/vaultscope*.service*
+    rm -rf /run/systemd/generator*/statistics*.service*
+    rm -rf /run/systemd/generator*/vaultscope*.service*
+    
+    # FORCE COMPLETE SYSTEMD RELOAD
+    systemctl daemon-reload
+    systemctl reset-failed
+    
+    # Clear systemd cache
+    rm -rf /var/lib/systemd/timesync/*.service 2>/dev/null || true
+    
+    # Unmask everything
+    for service in "${all_services[@]}"; do
         systemctl unmask $service 2>/dev/null || true
+        systemctl unmask $service.service 2>/dev/null || true
     done
+    
     print_done
     
     # Remove ALL Nginx configurations
@@ -941,37 +987,62 @@ fi
 
 echo -e "\n${CYAN}Starting complete uninstallation...${NC}\n"
 
-# Stop and remove ALL services
-print_progress "Stopping and removing ALL services"
+# NUCLEAR CLEANUP - KILL EVERYTHING
+print_progress "NUCLEAR cleanup - destroying ALL services"
+
+# Kill all node processes first
+killall node 2>/dev/null || true
+killall nodejs 2>/dev/null || true
+
+# List of ALL possible services
 services=(
     "statistics-server" "statistics-client"
     "vaultscope-server" "vaultscope-client"
     "vaultscope-statistics-server" "vaultscope-statistics-client"
+    "statistics" "vaultscope"
 )
+
+# DESTROY each service completely
 for service in "${services[@]}"; do
     systemctl stop $service 2>/dev/null || true
+    systemctl stop $service.service 2>/dev/null || true
+    systemctl kill $service 2>/dev/null || true
     systemctl disable $service 2>/dev/null || true
+    systemctl disable $service.service 2>/dev/null || true
     systemctl mask $service 2>/dev/null || true
+    systemctl mask $service.service 2>/dev/null || true
 done
 
-# Remove ALL service files from ALL locations
-rm -f /etc/systemd/system/statistics-*.service
-rm -f /etc/systemd/system/vaultscope-*.service
-rm -f /lib/systemd/system/statistics-*.service
-rm -f /lib/systemd/system/vaultscope-*.service
-rm -f /usr/lib/systemd/system/statistics-*.service
-rm -f /usr/lib/systemd/system/vaultscope-*.service
-rm -f /run/systemd/system/statistics-*.service
-rm -f /run/systemd/system/vaultscope-*.service
+# Find and DELETE all service files
+find /etc/systemd -name "*statistics*.service" -delete 2>/dev/null || true
+find /etc/systemd -name "*vaultscope*.service" -delete 2>/dev/null || true
+find /lib/systemd -name "*statistics*.service" -delete 2>/dev/null || true
+find /lib/systemd -name "*vaultscope*.service" -delete 2>/dev/null || true
+find /usr/lib/systemd -name "*statistics*.service" -delete 2>/dev/null || true
+find /usr/lib/systemd -name "*vaultscope*.service" -delete 2>/dev/null || true
+find /run/systemd -name "*statistics*.service" -delete 2>/dev/null || true
+find /run/systemd -name "*vaultscope*.service" -delete 2>/dev/null || true
 
-# Force systemd to forget services
-systemctl daemon-reload 2>/dev/null || true
-systemctl reset-failed 2>/dev/null || true
+# Manual removal of everything
+rm -rf /etc/systemd/system/statistics*.service*
+rm -rf /etc/systemd/system/vaultscope*.service*
+rm -rf /lib/systemd/system/statistics*.service*
+rm -rf /lib/systemd/system/vaultscope*.service*
+rm -rf /usr/lib/systemd/system/statistics*.service*
+rm -rf /usr/lib/systemd/system/vaultscope*.service*
+rm -rf /run/systemd/generator*/statistics*.service*
+rm -rf /run/systemd/generator*/vaultscope*.service*
 
-# Unmask services
+# FORCE systemd to completely reload
+systemctl daemon-reload
+systemctl reset-failed
+
+# Unmask everything
 for service in "${services[@]}"; do
     systemctl unmask $service 2>/dev/null || true
+    systemctl unmask $service.service 2>/dev/null || true
 done
+
 print_done
 
 # Remove Nginx configurations
@@ -1621,6 +1692,41 @@ if [ "$1" = "--diagnose" ] || [ "$1" = "-d" ]; then
     setup_colors
     check_root
     run_diagnostics
+    exit 0
+fi
+
+# Check if running with --uninstall flag
+if [ "$1" = "--uninstall" ] || [ "$1" = "-u" ]; then
+    setup_colors
+    check_root
+    print_header
+    cleanup_complete_installation
+    
+    # Remove ALL directories
+    print_progress "Removing ALL installation directories"
+    rm -rf /var/www/vaultscope-statistics
+    rm -rf /var/www/statistics
+    rm -rf /var/www/vaultscope
+    rm -rf /opt/vaultscope*
+    rm -rf /opt/statistics
+    rm -rf /etc/vaultscope*
+    rm -rf /etc/statistics
+    rm -rf /var/log/vaultscope*
+    rm -rf /var/log/statistics
+    print_done
+    
+    # Remove ALL CLI tools
+    print_progress "Removing ALL CLI tools"
+    rm -f /usr/local/bin/statistics*
+    rm -f /usr/local/bin/vaultscope*
+    rm -f /usr/bin/statistics*
+    rm -f /usr/bin/vaultscope*
+    print_done
+    
+    print_success "COMPLETE UNINSTALL FINISHED!"
+    echo ""
+    echo "All VaultScope Statistics components have been removed."
+    echo "You can now run the installer again for a fresh installation."
     exit 0
 fi
 
