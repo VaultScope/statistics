@@ -658,6 +658,13 @@ RATELIMIT_FILE_EOF
         print_done
     fi
     
+    # Ensure database.json exists in root directory for client runtime
+    print_progress "Finalizing database setup"
+    if [ ! -f "$INSTALL_DIR/database.json" ]; then
+        echo '{"users":[],"nodes":[],"categories":[],"roles":[]}' > "$INSTALL_DIR/database.json"
+    fi
+    print_done
+    
     # Set permissions
     print_progress "Setting permissions"
     chown -R www-data:www-data "$INSTALL_DIR" 2>/dev/null || \
