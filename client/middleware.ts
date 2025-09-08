@@ -5,8 +5,12 @@ import { verifySession } from './lib/auth';
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   
-  // Skip middleware for API routes and static files
-  if (pathname.startsWith('/api/') || pathname.startsWith('/_next/')) {
+  // Skip middleware for API routes, static files, and Next.js internals
+  if (
+    pathname.startsWith('/api/') || 
+    pathname.startsWith('/_next/') ||
+    pathname.includes('.')  // Skip files with extensions
+  ) {
     return NextResponse.next();
   }
   
@@ -16,32 +20,41 @@ export async function middleware(request: NextRequest) {
   const sessionCookie = request.cookies.get('session')?.value;
   const hasSession = sessionCookie ? await verifySession(sessionCookie) : null;
   
-  // Check if user exists - handle this more gracefully
-  let userExists = false;
+  // Check if user exists via API endpoint
+  let hasUsers = false;
   try {
-    const response = await fetch(new URL('/api/auth/check-setup', request.url));
+    const checkUrl = new URL('/api/auth/check-setup', request.url);
+    const response = await fetch(checkUrl.toString(), {
+      headers: {
+        // Pass along the cookie to avoid auth issues
+        cookie: request.headers.get('cookie') || '',
+      },
+    });
+    
     if (response.ok) {
       const data = await response.json();
-      userExists = data.userExists;
+      hasUsers = data.userExists;
     }
   } catch (error) {
-    // If check fails, assume no user exists
-    userExists = false;
+    // If check fails, allow access to avoid blocking the app
+    console.error('Failed to check user setup:', error);
+    return NextResponse.next();
   }
   
-  if (!userExists && pathname !== '/register') {
+  // Redirect logic
+  if (!hasUsers && pathname !== '/register') {
     return NextResponse.redirect(new URL('/register', request.url));
   }
   
-  if (userExists && pathname === '/register') {
+  if (hasUsers && pathname === '/register' && !hasSession) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
   
-  if (!hasSession && !isPublicPath && userExists) {
+  if (!hasSession && !isPublicPath && hasUsers) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
   
-  if (hasSession && (pathname === '/login' || pathname === '/register')) {
+  if (hasSession && (pathname === '/login')) {
     return NextResponse.redirect(new URL('/', request.url));
   }
   

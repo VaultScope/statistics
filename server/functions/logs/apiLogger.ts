@@ -12,7 +12,12 @@ interface LogsData {
 async function loadLogs(): Promise<LogsData> {
     try {
         const data = await fs.readFile(logsPath, 'utf-8');
-        return JSON.parse(data);
+        const parsed = JSON.parse(data);
+        // Ensure logs array exists even if file is empty or malformed
+        if (!parsed.logs || !Array.isArray(parsed.logs)) {
+            return { logs: [] };
+        }
+        return parsed;
     } catch (err) {
         return { logs: [] };
     }

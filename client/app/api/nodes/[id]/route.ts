@@ -31,7 +31,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await getSession();
-  if (!session || !session.isAdmin) {
+  if (!session || session.roleId !== 'admin') {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   
@@ -61,7 +61,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await getSession();
-  if (!session || !session.isAdmin) {
+  if (!session || session.roleId !== 'admin') {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   

@@ -57,7 +57,24 @@ function getDb(): Database {
   try {
     if (fs.existsSync(dbPath)) {
       const data = fs.readFileSync(dbPath, 'utf-8');
-      return JSON.parse(data);
+      const parsedData = JSON.parse(data);
+      
+      // Validate and migrate database structure
+      const db: Database = {
+        users: parsedData.users || [],
+        nodes: parsedData.nodes || [],
+        categories: parsedData.categories || [
+          { id: 1, name: 'default', color: '#ffffff', icon: 'folder', createdAt: new Date().toISOString() }
+        ],
+        roles: parsedData.roles || DEFAULT_ROLES
+      };
+      
+      // Save the migrated/validated structure back if needed
+      if (!parsedData.users || !parsedData.nodes || !parsedData.categories || !parsedData.roles) {
+        saveDb(db);
+      }
+      
+      return db;
     }
   } catch (error) {
     console.log('Creating new database...');

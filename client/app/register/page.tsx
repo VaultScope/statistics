@@ -49,7 +49,7 @@ export default function RegisterPage() {
         return;
       }
       
-      router.push('/login');
+      router.push('/');
     } catch (err) {
       setError('An error occurred');
     } finally {

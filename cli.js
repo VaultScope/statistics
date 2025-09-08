@@ -62,6 +62,7 @@ class VaultScopeCLI {
         console.log('  config                   Show configuration');
         console.log('  info                     Display installation information');
         console.log('  apikey                   Manage API keys');
+        console.log('  fix-client               Show commands to fix client service');
         console.log('  update                   Update VaultScope Statistics');
         console.log('  uninstall                Uninstall VaultScope Statistics');
         console.log('  version, -v              Show version');
@@ -70,6 +71,7 @@ class VaultScopeCLI {
         console.log('  statistics status               # Show service status');
         console.log('  statistics start server         # Start server only');
         console.log('  statistics logs client          # View client logs');
+        console.log('  statistics fix-client           # Get fix instructions for client');
         console.log('  statistics uninstall            # Remove everything');
         console.log('\nConfiguration file:', CONFIG_FILE);
     }
@@ -280,34 +282,27 @@ class VaultScopeCLI {
     }
 
     viewLogs(component = 'all') {
-        if (!this.config) {
-            console.error('❌ VaultScope Statistics is not installed');
-            return;
-        }
-
+        // Allow viewing logs even without config
         if (component === 'all') {
             console.log('Viewing all logs...\n');
-            if (this.config.serviceManager === 'pm2') {
+            if (this.config?.serviceManager === 'pm2') {
                 spawn('pm2', ['logs'], { stdio: 'inherit' });
             } else {
                 console.log('Use these commands to view logs:');
-                if (this.config.components.includes('server')) {
-                    console.log('  Server: sudo journalctl -u statistics-server -f');
-                }
-                if (this.config.components.includes('client')) {
-                    console.log('  Client: sudo journalctl -u statistics-client -f');
-                }
+                console.log('  Server: sudo journalctl -u vaultscope-statistics-server -f');
+                console.log('  Client: sudo journalctl -u vaultscope-statistics-client -f');
             }
         } else {
-            if (!this.config.components.includes(component)) {
+            if (this.config && !this.config.components.includes(component)) {
                 console.error(`❌ ${component} is not installed`);
                 return;
             }
             
             console.log(`Viewing ${component} logs...\n`);
-            if (this.config.serviceManager === 'systemd') {
-                spawn('journalctl', ['-u', `statistics-${component}`, '-f'], { stdio: 'inherit' });
-            } else if (this.config.serviceManager === 'pm2') {
+            if (!this.config || this.config.serviceManager === 'systemd') {
+                // Try new service names first
+                spawn('journalctl', ['-u', `vaultscope-statistics-${component}`, '-f'], { stdio: 'inherit' });
+            } else if (this.config?.serviceManager === 'pm2') {
                 spawn('pm2', ['logs', `statistics-${component}`], { stdio: 'inherit' });
             }
         }
@@ -324,32 +319,44 @@ class VaultScopeCLI {
     }
 
     manageApiKeys() {
-        if (!this.config?.server) {
-            console.error('❌ Server is not installed');
-            return;
-        }
-        
         console.log('\n🔑 API Key Management\n');
         
-        const serverPath = this.config.server.path;
-        const apiKeyScript = path.join(serverPath, 'cli', 'apikey.js');
-        
-        if (!fs.existsSync(apiKeyScript)) {
-            console.log('API key management not available.');
-            console.log(`\nCurrent API key file: ${this.config.server.apiKeyFile}`);
-            
-            if (fs.existsSync(this.config.server.apiKeyFile)) {
-                const apiKey = fs.readFileSync(this.config.server.apiKeyFile, 'utf8').trim();
-                console.log(`Current API key: ${apiKey}`);
-            }
-            return;
-        }
+        // Try to run the API key script from current directory first
+        const localApiKeyScript = path.join(process.cwd(), 'server', 'cli', 'apikey.ts');
+        const distApiKeyScript = path.join(process.cwd(), 'dist', 'server', 'cli', 'apikey.js');
         
         const args = this.args.slice(1);
-        spawn('node', [apiKeyScript, ...args], { 
-            stdio: 'inherit',
-            cwd: serverPath
-        });
+        
+        if (fs.existsSync(localApiKeyScript)) {
+            // Run TypeScript version if available
+            spawn('npx', ['ts-node', localApiKeyScript, ...args], { 
+                stdio: 'inherit',
+                cwd: process.cwd()
+            });
+        } else if (fs.existsSync(distApiKeyScript)) {
+            // Run compiled JavaScript version
+            spawn('node', [distApiKeyScript, ...args], { 
+                stdio: 'inherit',
+                cwd: process.cwd()
+            });
+        } else if (this.config?.server) {
+            // Fallback to configured path
+            const serverPath = this.config.server.path;
+            const apiKeyScript = path.join(serverPath, 'cli', 'apikey.js');
+            
+            if (fs.existsSync(apiKeyScript)) {
+                spawn('node', [apiKeyScript, ...args], { 
+                    stdio: 'inherit',
+                    cwd: serverPath
+                });
+            } else {
+                console.log('API key management script not found.');
+                console.log('Try running: npm run apikey');
+            }
+        } else {
+            console.log('API key management script not found.');
+            console.log('Try running: npm run apikey');
+        }
     }
 
     async uninstall() {
@@ -388,10 +395,18 @@ class VaultScopeCLI {
                     console.log('Stopping and removing systemd services...');
                     this.config.components.forEach(comp => {
                         try {
-                            execSync(`sudo systemctl stop statistics-${comp}`, { stdio: 'pipe' });
-                            execSync(`sudo systemctl disable statistics-${comp}`, { stdio: 'pipe' });
-                            execSync(`sudo rm -f /etc/systemd/system/statistics-${comp}.service`, { stdio: 'pipe' });
-                        } catch {}
+                            // Try new service names first
+                            execSync(`sudo systemctl stop vaultscope-statistics-${comp}`, { stdio: 'pipe' });
+                            execSync(`sudo systemctl disable vaultscope-statistics-${comp}`, { stdio: 'pipe' });
+                            execSync(`sudo rm -f /etc/systemd/system/vaultscope-statistics-${comp}.service`, { stdio: 'pipe' });
+                        } catch {
+                            // Fallback to old service names
+                            try {
+                                execSync(`sudo systemctl stop statistics-${comp}`, { stdio: 'pipe' });
+                                execSync(`sudo systemctl disable statistics-${comp}`, { stdio: 'pipe' });
+                                execSync(`sudo rm -f /etc/systemd/system/statistics-${comp}.service`, { stdio: 'pipe' });
+                            } catch {}
+                        }
                     });
                     execSync('sudo systemctl daemon-reload', { stdio: 'pipe' });
                 } else if (this.config.serviceManager === 'pm2') {
@@ -482,6 +497,30 @@ class VaultScopeCLI {
         }
     }
 
+    fixClientService() {
+        console.log('\n🔧 Fixing Client Service\n');
+        
+        if (this.platform === 'win32') {
+            console.error('This command is only available on Linux/Unix systems');
+            return;
+        }
+        
+        console.log('This will fix the client service by:');
+        console.log('  1. Installing client dependencies in production directory');
+        console.log('  2. Building the Next.js application');
+        console.log('  3. Updating the systemd service configuration');
+        console.log('');
+        console.log('Run the following commands on your production server:\n');
+        console.log('  cd /var/www/vaultscope-statistics/client');
+        console.log('  sudo npm install --production');
+        console.log('  sudo npm run build');
+        console.log('  sudo chown -R www-data:www-data /var/www/vaultscope-statistics');
+        console.log('  sudo systemctl restart vaultscope-statistics-client');
+        console.log('');
+        console.log('Then check the status with:');
+        console.log('  sudo systemctl status vaultscope-statistics-client');
+    }
+
     async run() {
         const command = this.args[0];
         const subCommand = this.args[1];
@@ -519,6 +558,11 @@ class VaultScopeCLI {
                 
             case 'apikey':
                 this.manageApiKeys();
+                break;
+                
+            case 'fix-client':
+            case 'fixclient':
+                this.fixClientService();
                 break;
                 
             case 'update':

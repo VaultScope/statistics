@@ -1,2 +1,103 @@
 {
+  "users": [
+  ],
+  "nodes": [
+  ],
+  "categories": [
+    {
+      "id": 1,
+      "name": "default",
+      "color": "#ffffff",
+      "icon": "folder",
+      "createdAt": "2025-09-08T03:42:29.456Z"
+    }
+  ],
+  "roles": [
+    {
+      "id": "admin",
+      "name": "Administrator",
+      "description": "Full system access",
+      "permissions": [
+        "nodes.view",
+        "nodes.create",
+        "nodes.edit",
+        "nodes.delete",
+        "nodes.power",
+        "users.view",
+        "users.create",
+        "users.edit",
+        "users.delete",
+        "users.roles",
+        "apikeys.view",
+        "apikeys.create",
+        "apikeys.edit",
+        "apikeys.delete",
+        "apikeys.logs",
+        "system.roles",
+        "system.permissions",
+        "system.settings",
+        "system.categories",
+        "monitoring.hardware",
+        "monitoring.process",
+        "monitoring.network",
+        "monitoring.overview"
+      ],
+      "isSystem": true,
+      "createdAt": "2025-09-08T03:42:29.440Z",
+      "updatedAt": "2025-09-08T03:42:29.442Z"
+    },
+    {
+      "id": "manager",
+      "name": "Manager",
+      "description": "Manage nodes and API keys",
+      "permissions": [
+        "nodes.view",
+        "nodes.create",
+        "nodes.edit",
+        "apikeys.view",
+        "apikeys.create",
+        "apikeys.edit",
+        "apikeys.logs",
+        "monitoring.hardware",
+        "monitoring.process",
+        "monitoring.network",
+        "monitoring.overview",
+        "system.categories"
+      ],
+      "isSystem": true,
+      "createdAt": "2025-09-08T03:42:29.442Z",
+      "updatedAt": "2025-09-08T03:42:29.442Z"
+    },
+    {
+      "id": "operator",
+      "name": "Operator",
+      "description": "Monitor and operate nodes",
+      "permissions": [
+        "nodes.view",
+        "nodes.power",
+        "monitoring.hardware",
+        "monitoring.process",
+        "monitoring.network",
+        "monitoring.overview",
+        "apikeys.view",
+        "apikeys.logs"
+      ],
+      "isSystem": true,
+      "createdAt": "2025-09-08T03:42:29.442Z",
+      "updatedAt": "2025-09-08T03:42:29.442Z"
+    },
+    {
+      "id": "viewer",
+      "name": "Viewer",
+      "description": "Read-only access",
+      "permissions": [
+        "nodes.view",
+        "monitoring.hardware",
+        "monitoring.overview"
+      ],
+      "isSystem": true,
+      "createdAt": "2025-09-08T03:42:29.442Z",
+      "updatedAt": "2025-09-08T03:42:29.442Z"
+    }
+  ]
 }
