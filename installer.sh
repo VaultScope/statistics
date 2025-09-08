@@ -601,9 +601,9 @@ EOF
 }
 
 # ============================================================================
-# CREATE SYSTEMD SERVICES
+# SETUP SYSTEMD SERVICES
 # ============================================================================
-create_services() {
+setup_services() {
     if [ "$SERVICE_MANAGER" != "systemd" ]; then
         print_warning "Systemd not available, skipping service creation"
         return 0
@@ -619,7 +619,7 @@ create_services() {
     
     # Create server service
     print_progress "Creating server service"
-    cat > /etc/systemd/system/statistics-server.service << EOF
+    cat > /etc/systemd/system/vaultscope-statistics-server.service << EOF
 [Unit]
 Description=VaultScope Statistics Server
 After=network.target
@@ -642,7 +642,7 @@ EOF
     # Create client service if Next.js exists
     if [ -d "$INSTALL_DIR/client/.next" ]; then
         print_progress "Creating client service"
-        cat > /etc/systemd/system/statistics-client.service << EOF
+        cat > /etc/systemd/system/vaultscope-statistics-client.service << EOF
 [Unit]
 Description=VaultScope Statistics Client
 After=network.target
@@ -666,18 +666,18 @@ EOF
     # Reload and start services
     print_progress "Starting services"
     systemctl daemon-reload
-    systemctl enable statistics-server >/dev/null 2>&1 || true
-    systemctl start statistics-server >/dev/null 2>&1 || true
+    systemctl enable vaultscope-statistics-server >/dev/null 2>&1 || true
+    systemctl start vaultscope-statistics-server >/dev/null 2>&1 || true
     
-    if [ -f /etc/systemd/system/statistics-client.service ]; then
-        systemctl enable statistics-client >/dev/null 2>&1 || true
-        systemctl start statistics-client >/dev/null 2>&1 || true
+    if [ -f /etc/systemd/system/vaultscope-statistics-client.service ]; then
+        systemctl enable vaultscope-statistics-client >/dev/null 2>&1 || true
+        systemctl start vaultscope-statistics-client >/dev/null 2>&1 || true
     fi
     print_done
     
     # Check status
     sleep 2
-    if systemctl is-active statistics-server >/dev/null 2>&1; then
+    if systemctl is-active vaultscope-statistics-server >/dev/null 2>&1; then
         print_success "Server service running successfully"
     else
         print_warning "Server service may not be running properly"
@@ -891,7 +891,7 @@ main() {
     install_dependencies
     install_nodejs
     install_application
-    create_services
+    setup_services
     configure_reverse_proxy
     configure_ssl
     create_cli_tool
@@ -903,13 +903,13 @@ main() {
     echo ""
     echo "Service Status:"
     echo "  • Server: http://localhost:4000"
-    [ -f /etc/systemd/system/statistics-client.service ] && echo "  • Client: http://localhost:4001"
+    [ -f /etc/systemd/system/vaultscope-statistics-client.service ] && echo "  • Client: http://localhost:4001"
     echo ""
     echo "Commands:"
     echo "  • CLI Tool: statistics"
-    echo "  • Start server: systemctl start statistics-server"
-    echo "  • Stop server: systemctl stop statistics-server"
-    echo "  • View logs: journalctl -u statistics-server -f"
+    echo "  • Start server: systemctl start vaultscope-statistics-server"
+    echo "  • Stop server: systemctl stop vaultscope-statistics-server"
+    echo "  • View logs: journalctl -u vaultscope-statistics-server -f"
     echo ""
     
     # Save installation info
