@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# VaultScope Statistics Software Installer v7.0 - STANDALONE EDITION
-# Completely standalone installer with no external script dependencies
+# VaultScope Statistics Software Installer v8.0 - PRODUCTION READY
+# Standalone installer with proper systemd service configuration
 
 # ============================================================================
 # CRITICAL: Disable exit on error during cleanup operations
@@ -75,7 +75,7 @@ setup_logging() {
 print_header() {
     clear
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${WHITE}${BOLD}      VaultScope Statistics Software Installer v7.0              ${CYAN}║${NC}"
+    echo -e "${CYAN}║${WHITE}${BOLD}      VaultScope Statistics Software Installer v8.0              ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
@@ -785,6 +785,12 @@ setup_services() {
     
     print_section "Creating System Services"
     
+    # Ensure log directory exists before creating services
+    print_progress "Creating log directories"
+    mkdir -p "$LOG_DIR" 2>/dev/null || true
+    chmod 755 "$LOG_DIR" 2>/dev/null || true
+    print_done
+    
     local node_path=$(which node 2>/dev/null || echo "/usr/bin/node")
     
     # Build the server for production first
@@ -815,8 +821,6 @@ Environment="JWT_SECRET=$(openssl rand -base64 32 2>/dev/null || echo 'change-th
 ExecStart=$server_cmd
 Restart=always
 RestartSec=10
-StandardOutput=append:$LOG_DIR/server.log
-StandardError=append:$LOG_DIR/server-error.log
 
 [Install]
 WantedBy=multi-user.target
@@ -851,8 +855,6 @@ Environment="JWT_SECRET=$(openssl rand -base64 32 2>/dev/null || echo 'change-th
 ExecStart=/bin/bash -c "$next_cmd"
 Restart=always
 RestartSec=10
-StandardOutput=append:$LOG_DIR/client.log
-StandardError=append:$LOG_DIR/client-error.log
 
 [Install]
 WantedBy=multi-user.target
@@ -1203,7 +1205,7 @@ main() {
     mkdir -p "$CONFIG_DIR" 2>/dev/null || true
     cat > "$CONFIG_DIR/installation.json" << EOF
 {
-  "version": "7.0",
+  "version": "8.0",
   "installed": "$(date -Iseconds)",
   "install_dir": "$INSTALL_DIR",
   "config_dir": "$CONFIG_DIR",
