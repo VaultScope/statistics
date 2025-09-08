@@ -755,6 +755,7 @@ configure_reverse_proxy() {
         cat > /etc/nginx/sites-available/vaultscope-api << 'NGINX_EOF'
 server {
     listen 80;
+    listen [::]:80;
     server_name API_DOMAIN_PLACEHOLDER;
     
     location / {
@@ -780,6 +781,7 @@ NGINX_EOF
         cat > /etc/nginx/sites-available/vaultscope-client << 'NGINX_EOF'
 server {
     listen 80;
+    listen [::]:80;
     server_name CLIENT_DOMAIN_PLACEHOLDER;
     
     location / {
@@ -844,9 +846,22 @@ NGINX_EOF
         echo "  API: http://$api_domain -> http://localhost:4000"
         echo "  Client: http://$client_domain -> http://localhost:4001"
         echo ""
+        
+        # Get IPv4 address (prefer IPv4 for DNS instructions)
+        local server_ipv4=$(curl -4 -s ifconfig.me 2>/dev/null || curl -s ipv4.icanhazip.com 2>/dev/null || ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -1)
+        local server_ipv6=$(curl -6 -s ifconfig.me 2>/dev/null || curl -s ipv6.icanhazip.com 2>/dev/null || ip -6 addr show | grep -oP '(?<=inet6\s)[a-f0-9:]+' | grep -v '^::1' | grep -v '^fe80' | head -1)
+        
         print_warning "IMPORTANT: Make sure your DNS records point to this server:"
-        echo "  • $api_domain -> $(curl -s ifconfig.me 2>/dev/null || echo 'YOUR_SERVER_IP')"
-        echo "  • $client_domain -> $(curl -s ifconfig.me 2>/dev/null || echo 'YOUR_SERVER_IP')"
+        if [ -n "$server_ipv4" ]; then
+            echo "  IPv4 (A record):"
+            echo "    • $api_domain -> $server_ipv4"
+            echo "    • $client_domain -> $server_ipv4"
+        fi
+        if [ -n "$server_ipv6" ]; then
+            echo "  IPv6 (AAAA record) - optional:"
+            echo "    • $api_domain -> $server_ipv6"
+            echo "    • $client_domain -> $server_ipv6"
+        fi
         
         # Store domains for SSL configuration
         export API_DOMAIN="$api_domain"
