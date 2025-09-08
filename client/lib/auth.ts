@@ -33,6 +33,14 @@ export async function verifySession(token: string): Promise<SessionUser | null> 
 }
 
 export async function getSession(request?: NextRequest): Promise<SessionUser | null> {
+  // For middleware, use request cookies directly
+  if (request) {
+    const token = request.cookies.get('session')?.value;
+    if (!token) return null;
+    return verifySession(token);
+  }
+  
+  // For server components, use cookies from next/headers
   const cookieStore = await cookies();
   const token = cookieStore.get('session')?.value;
   

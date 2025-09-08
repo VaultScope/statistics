@@ -23,22 +23,30 @@ export async function middleware(request: NextRequest) {
   // Check if user exists via API endpoint
   let hasUsers = false;
   try {
-    const checkUrl = new URL('/api/auth/check-setup', request.url);
-    const response = await fetch(checkUrl.toString(), {
-      headers: {
-        // Pass along the cookie to avoid auth issues
-        cookie: request.headers.get('cookie') || '',
-      },
-    });
-    
-    if (response.ok) {
-      const data = await response.json();
-      hasUsers = data.userExists;
+    // For production deployment, skip the user check initially to prevent blocking
+    // This should be handled by the backend API configuration
+    if (process.env.NODE_ENV === 'production' && !sessionCookie) {
+      // In production without session, redirect to login by default
+      hasUsers = true;
+    } else {
+      const checkUrl = new URL('/api/auth/check-setup', request.url);
+      const response = await fetch(checkUrl.toString(), {
+        headers: {
+          // Pass along the cookie to avoid auth issues
+          cookie: request.headers.get('cookie') || '',
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        hasUsers = data.userExists;
+      }
     }
   } catch (error) {
     // If check fails, allow access to avoid blocking the app
     console.error('Failed to check user setup:', error);
-    return NextResponse.next();
+    // Assume users exist to avoid blocking
+    hasUsers = true;
   }
   
   // Redirect logic
