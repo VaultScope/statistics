@@ -751,35 +751,56 @@ setup_application() {
     # Setup application files
     print_progress "Setting up application files"
     
-    # Check if running from local directory
-    if [ -f "$(dirname "$0")/package.json" ]; then
+    # Check if running from local directory WITH ACTUAL PROJECT FILES
+    if [ -f "$(dirname "$0")/package.json" ] && [ -d "$(dirname "$0")/server" ]; then
         print_done
-        print_info "Using local files"
+        print_info "Using local project files"
         cp -r "$(dirname "$0")"/* "$INSTALL_DIR/"
         cp -r "$(dirname "$0")"/.[^.]* "$INSTALL_DIR/" 2>/dev/null || true
     else
-        # Try to clone from GitHub
-        git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null 2>&1 || {
-            print_done
-            print_warning "Repository not available, creating minimal setup"
-            create_minimal_setup
+        print_done
+        print_progress "Cloning from GitHub"
+        # Clone the ACTUAL repository
+        rm -rf "$INSTALL_DIR"/*
+        git clone https://github.com/vaultscope/statistics.git "$INSTALL_DIR" 2>/dev/null || {
+            # Fallback - try alternate URL
+            git clone https://github.com/cptcr/statistics.git "$INSTALL_DIR" 2>/dev/null || {
+                print_done
+                print_warning "Repository not available, creating minimal setup"
+                create_minimal_setup
+                return
+            }
         }
         print_done
     fi
     
     cd "$INSTALL_DIR"
     
-    # Install dependencies
+    # Install ALL dependencies properly
     if [ -f "package.json" ]; then
         print_progress "Installing Node.js dependencies"
-        npm install --production > /dev/null 2>&1 || npm install > /dev/null 2>&1 || true
+        # Install ALL dependencies, not just production
+        npm install 2>&1 | tail -5
         print_done
         
-        # Try to build
-        if [ -f "tsconfig.json" ] || grep -q "build" package.json 2>/dev/null; then
-            print_progress "Building application"
-            npm run build > /dev/null 2>&1 || true
+        # Build TypeScript server if needed
+        if [ -f "tsconfig.json" ]; then
+            print_progress "Building TypeScript server"
+            npx tsc || npm run build || true
             print_done
+        fi
+        
+        # Build Next.js client if it exists
+        if [ -d "client" ] && [ -f "client/package.json" ]; then
+            print_progress "Installing client dependencies"
+            cd client
+            npm install 2>&1 | tail -5
+            print_done
+            
+            print_progress "Building Next.js client"
+            npm run build || npx next build || true
+            print_done
+            cd ..
         fi
     fi
     
@@ -825,6 +846,8 @@ EOF
     cat > "$INSTALL_DIR/server.js" << 'EOF'
 const express = require('express');
 const cors = require('cors');
+const os = require('os');
+
 const app = express();
 
 app.use(cors());
@@ -844,23 +867,67 @@ app.get('/', (req, res) => {
   res.json({ 
     name: 'VaultScope Statistics API',
     version: '1.0.0',
-    endpoints: ['/health', '/api/stats']
+    endpoints: ['/health', '/api/stats', '/api/system']
   });
 });
 
-// Stats endpoint
+// Real stats endpoint with actual system data
 app.get('/api/stats', (req, res) => {
+  const cpus = os.cpus();
+  const totalMem = os.totalmem();
+  const freeMem = os.freemem();
+  const usedMem = totalMem - freeMem;
+  
   res.json({
-    cpu: Math.random() * 100,
-    memory: Math.random() * 100,
-    disk: Math.random() * 100,
+    cpu: {
+      usage: os.loadavg()[0] * 100 / cpus.length,
+      cores: cpus.length,
+      model: cpus[0].model,
+      speed: cpus[0].speed
+    },
+    memory: {
+      total: totalMem,
+      used: usedMem,
+      free: freeMem,
+      percentage: (usedMem / totalMem) * 100
+    },
+    system: {
+      platform: os.platform(),
+      hostname: os.hostname(),
+      uptime: os.uptime()
+    },
     timestamp: new Date().toISOString()
   });
 });
 
+// System info endpoint
+app.get('/api/system', (req, res) => {
+  res.json({
+    hostname: os.hostname(),
+    platform: os.platform(),
+    arch: os.arch(),
+    release: os.release(),
+    uptime: os.uptime(),
+    loadavg: os.loadavg(),
+    totalmem: os.totalmem(),
+    freemem: os.freemem(),
+    cpus: os.cpus()
+  });
+});
+
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT}`);
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`VaultScope Statistics API Server running on port ${PORT}`);
+  console.log(`Health check: http://localhost:${PORT}/health`);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, closing server...');
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
 });
 EOF
 
@@ -1191,8 +1258,23 @@ install_cli_tool() {
     # Create CLI wrapper script
     cat > /usr/local/bin/statistics << 'EOF'
 #!/bin/bash
-cd /var/www/vaultscope-statistics
-node cli.js "$@" 2>/dev/null || echo "CLI not configured. Use systemctl to manage services."
+if [ -f /var/www/vaultscope-statistics/cli.js ]; then
+    cd /var/www/vaultscope-statistics
+    node cli.js "$@"
+elif [ -f /var/www/vaultscope-statistics/server/cli/apikey.js ]; then
+    cd /var/www/vaultscope-statistics
+    node server/cli/apikey.js "$@"
+else
+    echo "Statistics CLI"
+    echo "=============="
+    echo "Services:"
+    echo "  Server: systemctl status statistics-server"
+    echo "  Client: systemctl status statistics-client"
+    echo ""
+    echo "Logs:"
+    echo "  Server: journalctl -u statistics-server -f"
+    echo "  Client: journalctl -u statistics-client -f"
+fi
 EOF
     
     chmod +x /usr/local/bin/statistics
@@ -1274,7 +1356,7 @@ Group=$service_user
 WorkingDirectory=$INSTALL_DIR
 Environment="NODE_ENV=production"
 Environment="PORT=4000"
-ExecStart=$node_path $INSTALL_DIR/server.js
+ExecStart=$node_path $INSTALL_DIR/server/index.js
 Restart=always
 RestartSec=10
 StandardOutput=append:$LOG_DIR/server.log
@@ -1340,7 +1422,7 @@ User=root
 WorkingDirectory=$INSTALL_DIR
 Environment="NODE_ENV=production"
 Environment="PORT=4000"
-ExecStart=$node_path $INSTALL_DIR/server.js
+ExecStart=$node_path $INSTALL_DIR/server/index.js
 Restart=always
 RestartSec=10
 StandardOutput=append:$LOG_DIR/server.log
@@ -1364,10 +1446,6 @@ EOF
     
     # Client service
     if [ "$INSTALL_CLIENT" = true ]; then
-        # Use client.js if it exists, otherwise use server.js on port 3000
-        local client_script="$INSTALL_DIR/client.js"
-        [ ! -f "$client_script" ] && client_script="$INSTALL_DIR/server.js"
-        
         cat > /etc/systemd/system/statistics-client.service << EOF
 [Unit]
 Description=VaultScope Statistics Client
@@ -1377,10 +1455,10 @@ After=network.target
 Type=simple
 User=$service_user
 Group=$service_user
-WorkingDirectory=$INSTALL_DIR
+WorkingDirectory=$INSTALL_DIR/client
 Environment="NODE_ENV=production"
 Environment="PORT=3000"
-ExecStart=$node_path $client_script
+ExecStart=$node_path $INSTALL_DIR/client/node_modules/.bin/next start
 Restart=always
 RestartSec=10
 StandardOutput=append:$LOG_DIR/client.log
