@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# VaultScope Statistics Software Installer v6.0 - CLEAN EDITION
-# Simple, maintainable installer without code injections
+# VaultScope Statistics Software Installer v7.0 - STANDALONE EDITION
+# Completely standalone installer with no external script dependencies
 
 # ============================================================================
 # CRITICAL: Disable exit on error during cleanup operations
@@ -75,7 +75,7 @@ setup_logging() {
 print_header() {
     clear
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${WHITE}${BOLD}      VaultScope Statistics Software Installer v6.0              ${CYAN}║${NC}"
+    echo -e "${CYAN}║${WHITE}${BOLD}      VaultScope Statistics Software Installer v7.0              ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
@@ -713,11 +713,11 @@ install_application() {
         npm install --silent >/dev/null 2>&1 || npm install >/dev/null 2>&1 || true
         print_done
         
-        # Initialize database
-        print_progress "Initializing database"
-        npm run init:db 2>&1 | tee -a "$LOG_FILE" || {
-            print_warning "Database initialization failed, may already exist"
-        }
+        # Ensure JSON database files exist
+        print_progress "Setting up databases"
+        # The project already has database.json files, just ensure they exist
+        [ ! -f "database.json" ] && echo '{}' > database.json
+        [ -d "client" ] && [ ! -f "client/database.json" ] && echo '{}' > client/database.json
         print_done
         
         # Build TypeScript if needed
@@ -1203,7 +1203,7 @@ main() {
     mkdir -p "$CONFIG_DIR" 2>/dev/null || true
     cat > "$CONFIG_DIR/installation.json" << EOF
 {
-  "version": "6.0",
+  "version": "7.0",
   "installed": "$(date -Iseconds)",
   "install_dir": "$INSTALL_DIR",
   "config_dir": "$CONFIG_DIR",
