@@ -3,23 +3,43 @@ import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { db, users, roles, sessions, auditLogs } from '../index';
 import type { NewUser, User, Role, NewRole, Session, NewSession, AuditLog, NewAuditLog } from '../schema/users';
+import { UpdateUserData } from '../../../types/network';
+
+class DatabaseError extends Error {
+  constructor(message: string, public originalError?: unknown) {
+    super(message);
+    this.name = 'DatabaseError';
+  }
+}
 
 export class UserRepository {
   // User CRUD operations
   async createUser(data: Omit<NewUser, 'id' | 'createdAt' | 'updatedAt'>): Promise<User> {
-    const hashedPassword = await bcrypt.hash(data.password, 10);
-    
-    const [user] = await db.insert(users).values({
-      ...data,
-      password: hashedPassword,
-    }).returning();
-    
-    return user;
+    try {
+      const hashedPassword = await bcrypt.hash(data.password, 10);
+      
+      const [user] = await db.insert(users).values({
+        ...data,
+        password: hashedPassword,
+      }).returning();
+      
+      if (!user) {
+        throw new DatabaseError('Failed to create user');
+      }
+      
+      return user;
+    } catch (error) {
+      throw new DatabaseError('Error creating user', error);
+    }
   }
 
   async getUserById(id: number): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.id, id));
-    return user;
+    try {
+      const [user] = await db.select().from(users).where(eq(users.id, id));
+      return user;
+    } catch (error) {
+      throw new DatabaseError(`Error fetching user with id ${id}`, error);
+    }
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
@@ -37,24 +57,32 @@ export class UserRepository {
   }
 
   async updateUser(id: number, data: Partial<Omit<User, 'id' | 'createdAt'>>): Promise<User | undefined> {
-    const updateData: any = { ...data, updatedAt: new Date().toISOString() };
-    
-    // Hash password if it's being updated
-    if (data.password) {
-      updateData.password = await bcrypt.hash(data.password, 10);
+    try {
+      const updateData: Partial<User> = { ...data, updatedAt: new Date().toISOString() };
+      
+      // Hash password if it's being updated
+      if (data.password) {
+        updateData.password = await bcrypt.hash(data.password, 10);
+      }
+      
+      const [updated] = await db.update(users)
+        .set(updateData)
+        .where(eq(users.id, id))
+        .returning();
+      
+      return updated;
+    } catch (error) {
+      throw new DatabaseError(`Error updating user with id ${id}`, error);
     }
-    
-    const [updated] = await db.update(users)
-      .set(updateData)
-      .where(eq(users.id, id))
-      .returning();
-    
-    return updated;
   }
 
   async deleteUser(id: number): Promise<boolean> {
-    const result = await db.delete(users).where(eq(users.id, id));
-    return result.changes > 0;
+    try {
+      const result = await db.delete(users).where(eq(users.id, id));
+      return result.changes > 0;
+    } catch (error) {
+      throw new DatabaseError(`Error deleting user with id ${id}`, error);
+    }
   }
 
   async verifyPassword(password: string, hash: string): Promise<boolean> {
@@ -102,18 +130,22 @@ export class UserRepository {
   }
 
   async updateRole(id: string, data: Partial<Omit<Role, 'id' | 'createdAt'>>): Promise<Role | undefined> {
-    const updateData: any = { ...data, updatedAt: new Date().toISOString() };
-    
-    if (data.permissions) {
-      updateData.permissions = JSON.stringify(data.permissions);
+    try {
+      const updateData: Partial<Role> = { ...data, updatedAt: new Date().toISOString() };
+      
+      if (data.permissions) {
+        updateData.permissions = JSON.stringify(data.permissions);
+      }
+      
+      const [updated] = await db.update(roles)
+        .set(updateData)
+        .where(and(eq(roles.id, id), eq(roles.isSystem, false)))
+        .returning();
+      
+      return updated;
+    } catch (error) {
+      throw new DatabaseError(`Error updating role with id ${id}`, error);
     }
-    
-    const [updated] = await db.update(roles)
-      .set(updateData)
-      .where(and(eq(roles.id, id), eq(roles.isSystem, false)))
-      .returning();
-    
-    return updated;
   }
 
   async deleteRole(id: string): Promise<boolean> {

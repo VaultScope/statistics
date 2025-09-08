@@ -22,7 +22,7 @@ const getDatabasePath = () => {
 };
 
 // Create SQLite connection
-const sqlite = new Database(getDatabasePath());
+const sqlite: Database.Database = new Database(getDatabasePath());
 
 // Enable foreign keys
 sqlite.pragma('foreign_keys = ON');

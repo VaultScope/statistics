@@ -7,7 +7,7 @@ const dbPath = process.env.NODE_ENV === 'production'
   : path.join(process.cwd(), 'database.db');
 
 // Create database instance
-const db = new Database(dbPath);
+const db: Database.Database = new Database(dbPath);
 
 // Enable foreign keys
 db.pragma('foreign_keys = ON');
