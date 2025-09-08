@@ -553,11 +553,35 @@ install_application() {
         # Apply production fixes before building
         print_progress "Applying production fixes"
         
-        # Fix 1: Trust proxy configuration
-        sed -i "s/app.set('trust proxy', true)/app.set('trust proxy', 'loopback')/" server/index.ts 2>/dev/null || true
+        # Fix 1: Trust proxy configuration in server/index.ts
+        if [ -f "server/index.ts" ]; then
+            # Replace any existing trust proxy setting with loopback
+            sed -i "/app.set('trust proxy'/d" server/index.ts
+            # Add the correct trust proxy setting after app creation
+            sed -i "/const app = express();/a\\
+app.set('trust proxy', 'loopback');" server/index.ts
+        fi
         
-        # Fix 2: Rate limiter configuration with validation disabled
-        cat > /tmp/ratelimit-fix.ts << 'RATELIMIT_EOF'
+        # Fix 2: Complete rate limiter replacement
+        if [ -f "server/functions/rateLimit.ts" ]; then
+            cat > server/functions/rateLimit.ts << 'RATELIMIT_FILE_EOF'
+import rateLimit from "express-rate-limit";
+import { Request, Response, NextFunction } from "express";
+import { promises as fs } from "fs";
+import path from "path";
+import Key from "../types/api/keys/key";
+
+const apiKeysPath = path.resolve(__dirname, "../apiKeys.json");
+
+async function loadKeys(): Promise<Key[]> {
+    try {
+        const data = await fs.readFile(apiKeysPath, "utf-8");
+        return JSON.parse(data);
+    } catch (err) {
+        return [];
+    }
+}
+
 // Rate limiter for requests without valid API key - 10 requests per minute
 const invalidKeyLimiter = rateLimit({
   windowMs: 60 * 1000,  // 1 minute
@@ -575,12 +599,31 @@ const invalidKeyLimiter = rateLimit({
   },
   validate: false
 });
-RATELIMIT_EOF
-        
-        # Apply rate limiter fix
-        sed -i '/const invalidKeyLimiter = rateLimit({/,/^});$/d' server/functions/rateLimit.ts 2>/dev/null || true
-        sed -i '/^async function loadKeys/r /tmp/ratelimit-fix.ts' server/functions/rateLimit.ts 2>/dev/null || true
-        rm -f /tmp/ratelimit-fix.ts
+
+// Main rate limiting middleware that checks for API key validity
+const limiter = async (req: Request, res: Response, next: NextFunction) => {
+  // Extract API key from headers or query
+  const apiKey: string = req.headers['x-api-key'] as string || 
+                        req.headers['authorization']?.replace('Bearer ', '') || 
+                        (req.query.apiKey as string);
+
+  if (apiKey) {
+    const keys = await loadKeys();
+    const foundKey = keys.find(k => k.key === apiKey);
+    
+    if (foundKey) {
+      // Valid API key found - skip rate limiting
+      return next();
+    }
+  }
+  
+  // No API key or invalid key - apply rate limiting
+  invalidKeyLimiter(req, res, next);
+};
+
+export default limiter;
+RATELIMIT_FILE_EOF
+        fi
         
         print_done
         
