@@ -3,7 +3,13 @@ import fs from 'fs';
 import path from 'path';
 import { DEFAULT_ROLES } from './permissions';
 
-const dbPath = path.join(process.cwd(), 'database.json');
+// Use a shared database location for both client and server
+// In production, use /var/www/vaultscope-statistics/database.json
+// In development, use local database.json
+const dbPath = process.env.DATABASE_PATH || 
+  (process.env.NODE_ENV === 'production' 
+    ? '/var/www/vaultscope-statistics/database.json'
+    : path.join(process.cwd(), 'database.json'));
 
 interface Database {
   users: User[];
