@@ -9,22 +9,24 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "axios": "^1.11.0",
+    "bcryptjs": "^3.0.2",
+    "cookie": "^1.0.2",
+    "jose": "^6.1.0",
+    "lucide-react": "^0.542.0",
     "next": "^15.5.2",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "recharts": "^3.1.2",
-    "lucide-react": "^0.542.0",
-    "axios": "^1.11.0",
-    "jose": "^6.1.0",
-    "cookie": "^1.0.2"
+    "recharts": "^3.1.2"
   },
   "devDependencies": {
     "@types/node": "^24.3.1",
     "@types/react": "^19.1.12",
     "@types/react-dom": "^19.1.9",
-    "typescript": "^5.9.2",
-    "tailwindcss": "^3.4.17",
+    "autoprefixer": "^10.4.21",
     "postcss": "^8.5.6",
-    "autoprefixer": "^10.4.21"
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.9.2"
   }
 }
