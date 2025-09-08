@@ -105,19 +105,22 @@ print_done() {
     echo -e " ${GREEN}done${NC}"
 }
 
-# Spinner function for long operations
-spinner() {
+# Simple wait function instead of spinner
+wait_for_process() {
     local pid=$1
-    local delay=0.1
-    local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-    while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
-        local temp=${spinstr#?}
-        printf " [%c]  " "$spinstr"
-        local spinstr=$temp${spinstr%"$temp"}
-        sleep $delay
-        printf "\b\b\b\b\b\b"
+    local timeout=${2:-60}  # Default 60 seconds timeout
+    local elapsed=0
+    
+    while kill -0 $pid 2>/dev/null; do
+        if [ $elapsed -ge $timeout ]; then
+            kill -9 $pid 2>/dev/null || true
+            return 1
+        fi
+        sleep 1
+        elapsed=$((elapsed + 1))
     done
-    printf "    \b\b\b\b"
+    
+    return 0
 }
 
 # Check root privileges
@@ -366,32 +369,69 @@ install_nvm_node() {
     
     local NVM_DIR="/opt/nvm"
     
-    if [ ! -d "$NVM_DIR" ]; then
-        print_progress "Installing NVM"
-        export NVM_DIR="$NVM_DIR"
-        mkdir -p "$NVM_DIR"
-        curl -o- "https://raw.githubusercontent.com/nvm-sh/nvm/$NVM_VERSION/install.sh" 2>/dev/null | NVM_DIR="$NVM_DIR" bash > /dev/null 2>&1
-        print_done
-    else
+    # Check if Node.js is already installed via NVM
+    if [ -f "$NVM_DIR/nvm.sh" ] && [ -d "$NVM_DIR/versions/node" ]; then
         print_info "NVM already installed"
+        export NVM_DIR="$NVM_DIR"
+        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+        
+        # Check if correct version is installed
+        if command -v node > /dev/null 2>&1; then
+            local current_version=$(node --version | sed 's/v//' | cut -d. -f1)
+            if [ "$current_version" = "$NODE_VERSION" ]; then
+                print_success "Node.js $(node --version) already installed"
+                print_success "NPM $(npm --version) already installed"
+                return
+            fi
+        fi
+    fi
+    
+    # Install NVM
+    if [ ! -d "$NVM_DIR" ]; then
+        print_progress "Downloading and installing NVM"
+        mkdir -p "$NVM_DIR"
+        
+        # Download NVM script with timeout
+        curl -sL --max-time 30 --connect-timeout 10 "https://raw.githubusercontent.com/nvm-sh/nvm/$NVM_VERSION/install.sh" -o /tmp/nvm_install.sh 2>/dev/null
+        
+        # Run installation
+        NVM_DIR="$NVM_DIR" bash /tmp/nvm_install.sh > /dev/null 2>&1
+        rm -f /tmp/nvm_install.sh
+        
+        print_done
     fi
     
     # Load NVM
     export NVM_DIR="$NVM_DIR"
-    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh" > /dev/null 2>&1
     
-    print_progress "Installing Node.js v$NODE_VERSION"
-    nvm install "$NODE_VERSION" > /dev/null 2>&1
+    # Install Node.js
+    print_progress "Installing Node.js v$NODE_VERSION (this may take a minute)"
+    nvm install "$NODE_VERSION" > /dev/null 2>&1 || {
+        print_done
+        print_warning "Failed to install via NVM, trying system package manager"
+        
+        # Fallback to system package manager
+        if [ "$OS" = "debian" ]; then
+            curl -fsSL --max-time 30 https://deb.nodesource.com/setup_20.x -o /tmp/node_setup.sh 2>/dev/null
+            bash /tmp/node_setup.sh > /dev/null 2>&1
+            apt-get install -y nodejs > /dev/null 2>&1
+            rm -f /tmp/node_setup.sh
+        fi
+    }
+    
     nvm use "$NODE_VERSION" > /dev/null 2>&1
     nvm alias default "$NODE_VERSION" > /dev/null 2>&1
+    
     print_done
     
-    # Get actual versions
-    local node_ver=$(node --version 2>/dev/null || echo "not found")
-    local npm_ver=$(npm --version 2>/dev/null || echo "not found")
-    
-    print_success "Node.js $node_ver installed"
-    print_success "NPM $npm_ver installed"
+    # Verify installation
+    if command -v node > /dev/null 2>&1; then
+        print_success "Node.js $(node --version 2>/dev/null) installed"
+        print_success "NPM $(npm --version 2>/dev/null) installed"
+    else
+        print_warning "Node.js installation may have issues, continuing anyway"
+    fi
 }
 
 # Component selection menu
@@ -402,7 +442,7 @@ show_component_menu() {
     echo ""
     echo "  1) Server (API) only"
     echo "  2) Client (Frontend) only"
-    echo -e "  3) Both Server and Client ${GREEN}[Recommended]${NC}"
+    printf "  3) Both Server and Client %b[Recommended]%b\n" "$GREEN" "$NC"
     echo ""
     
     read -p "$(echo -e ${CYAN}"Enter your choice [1-3]: "${NC})" component_choice
@@ -443,7 +483,7 @@ show_proxy_menu() {
     
     echo -e "${WHITE}Select reverse proxy:${NC}"
     echo ""
-    echo -e "  1) Nginx ${GREEN}[Recommended]${NC}"
+    printf "  1) Nginx %b[Recommended]%b\n" "$GREEN" "$NC"
     echo "  2) Apache"
     echo "  3) Cloudflare Tunnel (cloudflared)"
     echo "  4) None (direct access only)"
@@ -609,32 +649,45 @@ EOCLIENT
         print_done
         print_warning "No package.json found, skipping dependency installation"
     else
-        npm install --silent > /dev/null 2>&1 || {
+        # Run npm install in background with timeout
+        npm install --silent > /dev/null 2>&1 &
+        local npm_pid=$!
+        
+        if wait_for_process $npm_pid 120; then
             print_done
-            print_warning "Some dependencies may have failed to install"
-        }
-        print_done
+        else
+            print_done
+            print_warning "NPM install timed out, continuing anyway"
+        fi
     fi
     
     # Build TypeScript
     if [ -f "tsconfig.json" ]; then
         print_progress "Building TypeScript files"
-        npm run build > /dev/null 2>&1 || {
+        npm run build > /dev/null 2>&1 &
+        local build_pid=$!
+        
+        if wait_for_process $build_pid 60; then
             print_done
-            print_warning "TypeScript build failed, trying to continue"
-        }
-        print_done
+        else
+            print_done
+            print_warning "Build timed out or failed, continuing anyway"
+        fi
     fi
     
     # Build client if needed
     if [ "$INSTALL_CLIENT" = true ]; then
         if [ -f "package.json" ] && grep -q "client:build" package.json 2>/dev/null; then
             print_progress "Building client application"
-            npm run client:build > /dev/null 2>&1 || {
+            npm run client:build > /dev/null 2>&1 &
+            local client_pid=$!
+            
+            if wait_for_process $client_pid 60; then
                 print_done
-                print_warning "Client build failed, trying to continue"
-            }
-            print_done
+            else
+                print_done
+                print_warning "Client build timed out or failed, continuing anyway"
+            fi
         fi
     fi
     
@@ -805,13 +858,13 @@ configure_cloudflared() {
     print_progress "Installing cloudflared"
     
     if [ "$OS" == "debian" ]; then
-        curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o /tmp/cloudflared.deb > /dev/null 2>&1
+        curl -L --max-time 60 https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o /tmp/cloudflared.deb > /dev/null 2>&1
         dpkg -i /tmp/cloudflared.deb > /dev/null 2>&1
         rm /tmp/cloudflared.deb
     elif [ "$OS" == "arch" ]; then
         install_package cloudflared
     else
-        curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared > /dev/null 2>&1
+        curl -L --max-time 60 https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared > /dev/null 2>&1
         chmod +x /usr/local/bin/cloudflared
     fi
     
