@@ -15,7 +15,8 @@ const app = express();
 const port = 4000;
 
 // Trust proxy when running behind reverse proxy (nginx, apache, etc)
-app.set('trust proxy', true);
+// Use 'loopback' to only trust localhost proxy (nginx on same server)
+app.set('trust proxy', 'loopback');
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));

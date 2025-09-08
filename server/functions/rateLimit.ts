@@ -21,7 +21,11 @@ const invalidKeyLimiter = rateLimit({
   max: 10,               // 10 requests per minute
   standardHeaders: true, 
   legacyHeaders: false, 
-  message: "Too many requests without valid API key. Maximum 10 requests per minute allowed."
+  message: "Too many requests without valid API key. Maximum 10 requests per minute allowed.",
+  // Skip IP validation since we're only trusting loopback proxy
+  skip: (req) => false,
+  // Use default key generator which respects Express trust proxy setting
+  keyGenerator: (req) => req.ip || 'unknown'
 });
 
 // Main rate limiting middleware that checks for API key validity
