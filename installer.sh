@@ -815,14 +815,38 @@ NGINX_EOF
             print_progress "Reloading Nginx"
             systemctl reload nginx || systemctl restart nginx || true
             print_done
+            
+            # Verify sites are enabled
+            print_progress "Verifying nginx sites"
+            if [ -L /etc/nginx/sites-enabled/vaultscope-api ] && [ -L /etc/nginx/sites-enabled/vaultscope-client ]; then
+                print_done
+                print_success "Nginx sites enabled successfully"
+            else
+                print_warning "Nginx sites may not be properly enabled"
+            fi
+            
+            # Show actual configuration
+            print_info "Nginx configuration created:"
+            echo "  • /etc/nginx/sites-available/vaultscope-api"
+            echo "  • /etc/nginx/sites-available/vaultscope-client"
+            echo ""
+            print_info "To check nginx configuration:"
+            echo "  nginx -t"
+            echo "  cat /etc/nginx/sites-enabled/vaultscope-api"
+            echo "  cat /etc/nginx/sites-enabled/vaultscope-client"
         else
             print_warning "Nginx configuration test failed, checking..."
             nginx -t
+            print_error "Please fix nginx errors and re-run the installer"
         fi
         
         print_success "Reverse proxy configured for:"
         echo "  API: http://$api_domain -> http://localhost:4000"
         echo "  Client: http://$client_domain -> http://localhost:4001"
+        echo ""
+        print_warning "IMPORTANT: Make sure your DNS records point to this server:"
+        echo "  • $api_domain -> $(curl -s ifconfig.me 2>/dev/null || echo 'YOUR_SERVER_IP')"
+        echo "  • $client_domain -> $(curl -s ifconfig.me 2>/dev/null || echo 'YOUR_SERVER_IP')"
         
         # Store domains for SSL configuration
         export API_DOMAIN="$api_domain"
@@ -878,13 +902,46 @@ configure_ssl() {
         
         # Get certificates for both domains
         print_progress "Obtaining SSL certificates"
-        certbot --nginx -d "$API_DOMAIN" -d "$CLIENT_DOMAIN" --non-interactive --agree-tos --email "$email" >/dev/null 2>&1 || {
-            print_warning "Could not obtain certificates automatically"
-            echo "Please run manually: certbot --nginx -d $API_DOMAIN -d $CLIENT_DOMAIN"
-        }
-        print_done
         
-        print_success "SSL certificates configured for $API_DOMAIN and $CLIENT_DOMAIN"
+        # Try to get certificates
+        if certbot --nginx -d "$API_DOMAIN" -d "$CLIENT_DOMAIN" --non-interactive --agree-tos --email "$email" 2>&1 | tee /tmp/certbot.log | grep -q "Successfully"; then
+            print_done
+            print_success "SSL certificates obtained successfully!"
+            
+            # Verify HTTPS is working
+            print_progress "Verifying HTTPS configuration"
+            sleep 2
+            if curl -s -o /dev/null -w "%{http_code}" "https://$API_DOMAIN/health" 2>/dev/null | grep -q "200\|404\|502"; then
+                print_done
+                print_success "HTTPS is working for API domain"
+            else
+                print_warning "Could not verify HTTPS for API domain"
+            fi
+            
+            if curl -s -o /dev/null -w "%{http_code}" "https://$CLIENT_DOMAIN" 2>/dev/null | grep -q "200\|404\|502"; then
+                print_success "HTTPS is working for Client domain"
+            else
+                print_warning "Could not verify HTTPS for Client domain"
+            fi
+        else
+            print_warning "Could not obtain certificates automatically"
+            echo ""
+            print_info "Common issues:"
+            echo "  • DNS not pointing to this server yet"
+            echo "  • Ports 80/443 not accessible from internet"
+            echo "  • Domain not resolving"
+            echo ""
+            echo "To manually obtain certificates later:"
+            echo "  sudo certbot --nginx -d $API_DOMAIN -d $CLIENT_DOMAIN"
+            echo ""
+            echo "To test without SSL, you can access:"
+            echo "  • http://$API_DOMAIN"
+            echo "  • http://$CLIENT_DOMAIN"
+        fi
+        
+        print_info "SSL status for domains:"
+        echo "  • $API_DOMAIN"
+        echo "  • $CLIENT_DOMAIN"
         
         # Setup auto-renewal
         print_progress "Setting up auto-renewal"
