@@ -257,22 +257,55 @@ detect_existing_installation() {
         echo -e "$found_items"
         echo ""
         echo "${YELLOW}What would you like to do?${NC}"
-        echo "  1) Remove everything and install fresh ${GREEN}[Recommended]${NC}"
-        echo "  2) Upgrade existing installation"
-        echo "  3) Cancel installation"
+        echo "  1) ${RED}COMPLETELY UNINSTALL${NC} and exit"
+        echo "  2) Remove everything and install fresh ${GREEN}[Recommended]${NC}"
+        echo "  3) Upgrade existing installation"
+        echo "  4) Cancel"
         echo ""
         
-        read -p "${CYAN}Enter your choice [1-3]: ${NC}" choice
+        read -p "${CYAN}Enter your choice [1-4]: ${NC}" choice
         
         case $choice in
             1)
+                print_warning "Starting COMPLETE uninstallation..."
                 cleanup_complete_installation
+                
+                # Remove ALL directories
+                print_progress "Removing ALL installation directories"
+                rm -rf /var/www/vaultscope-statistics
+                rm -rf /var/www/statistics
+                rm -rf /var/www/vaultscope
+                rm -rf /opt/vaultscope*
+                rm -rf /opt/statistics
+                rm -rf /etc/vaultscope*
+                rm -rf /etc/statistics
+                rm -rf /var/log/vaultscope*
+                rm -rf /var/log/statistics
+                print_done
+                
+                # Remove ALL CLI tools
+                print_progress "Removing ALL CLI tools"
+                rm -f /usr/local/bin/statistics*
+                rm -f /usr/local/bin/vaultscope*
+                rm -f /usr/bin/statistics*
+                rm -f /usr/bin/vaultscope*
+                print_done
+                
+                print_success "✓ COMPLETE UNINSTALLATION FINISHED!"
+                echo ""
+                echo "All VaultScope Statistics components have been completely removed."
+                echo "You can run this installer again for a fresh installation."
+                echo ""
+                exit 0
                 ;;
             2)
+                cleanup_complete_installation
+                ;;
+            3)
                 print_info "Upgrade mode selected"
                 backup_existing_installation
                 ;;
-            3)
+            4)
                 print_info "Installation cancelled"
                 exit 0
                 ;;
@@ -1255,13 +1288,77 @@ EOF
         systemctl enable statistics-server > /dev/null 2>&1
         systemctl restart statistics-server
         
-        # Wait for service to start
-        sleep 2
+        # Wait for service to start and VALIDATE it works
+        print_progress "Validating server service"
+        sleep 3
         
-        if systemctl is-active --quiet statistics-server; then
-            print_success "Server service started successfully"
+        local retries=5
+        local service_ok=false
+        
+        while [ $retries -gt 0 ]; do
+            if systemctl is-active --quiet statistics-server; then
+                # Check if it's actually responding
+                if curl -s http://localhost:4000/health 2>/dev/null | grep -q "healthy"; then
+                    service_ok=true
+                    break
+                fi
+            fi
+            sleep 2
+            retries=$((retries - 1))
+        done
+        
+        print_done
+        
+        if [ "$service_ok" = true ]; then
+            print_success "Server service started and responding on port 4000"
         else
-            print_warning "Server service failed to start - check logs"
+            print_error "Server service failed to start properly!"
+            echo ""
+            echo "  ${YELLOW}Last error logs:${NC}"
+            journalctl -u statistics-server -n 10 --no-pager
+            echo ""
+            print_warning "Attempting to fix..."
+            
+            # Try to fix common issues
+            systemctl stop statistics-server
+            killall node 2>/dev/null || true
+            
+            # Recreate service with explicit node path
+            local node_path="/usr/bin/node"
+            if [ ! -f "$node_path" ]; then
+                node_path=$(which node)
+            fi
+            
+            cat > /etc/systemd/system/statistics-server.service << EOF
+[Unit]
+Description=VaultScope Statistics API Server
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=$INSTALL_DIR
+Environment="NODE_ENV=production"
+Environment="PORT=4000"
+ExecStart=$node_path $INSTALL_DIR/server.js
+Restart=always
+RestartSec=10
+StandardOutput=append:$LOG_DIR/server.log
+StandardError=append:$LOG_DIR/server-error.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+            
+            systemctl daemon-reload
+            systemctl start statistics-server
+            sleep 3
+            
+            if systemctl is-active --quiet statistics-server; then
+                print_success "Server service fixed and started"
+            else
+                print_error "Server service still failing - manual intervention required"
+            fi
         fi
     fi
     
