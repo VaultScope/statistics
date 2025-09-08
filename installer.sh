@@ -795,7 +795,10 @@ setup_application() {
         # Build TypeScript server if needed
         if [ -f "tsconfig.json" ]; then
             print_progress "Building TypeScript server"
-            npx tsc || npm run build || true
+            npx tsc || npm run build || {
+                print_warning "TypeScript build failed, using source files"
+                # If TypeScript fails, services will use source .ts files
+            }
             print_done
         fi
         
@@ -1369,7 +1372,7 @@ Group=$service_user
 WorkingDirectory=$INSTALL_DIR
 Environment="NODE_ENV=production"
 Environment="PORT=4000"
-ExecStart=$node_path $INSTALL_DIR/server/index.js
+ExecStart=$node_path $INSTALL_DIR/dist/server/index.js
 Restart=always
 RestartSec=10
 StandardOutput=append:$LOG_DIR/server.log
@@ -1435,7 +1438,7 @@ User=root
 WorkingDirectory=$INSTALL_DIR
 Environment="NODE_ENV=production"
 Environment="PORT=4000"
-ExecStart=$node_path $INSTALL_DIR/server/index.js
+ExecStart=$node_path $INSTALL_DIR/dist/server/index.js
 Restart=always
 RestartSec=10
 StandardOutput=append:$LOG_DIR/server.log
