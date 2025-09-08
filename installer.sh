@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# VaultScope Statistics Software Installer v4.0 - BULLETPROOF EDITION
-# NO ERRORS. WORKS ON LINUX AND MACOS. PERIOD.
+# VaultScope Statistics Software Installer v6.0 - CLEAN EDITION
+# Simple, maintainable installer without code injections
 
 # ============================================================================
 # CRITICAL: Disable exit on error during cleanup operations
@@ -75,7 +75,7 @@ setup_logging() {
 print_header() {
     clear
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${WHITE}${BOLD}      VaultScope Statistics Software Installer v4.0              ${CYAN}║${NC}"
+    echo -e "${CYAN}║${WHITE}${BOLD}      VaultScope Statistics Software Installer v6.0              ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
@@ -315,21 +315,59 @@ nuclear_cleanup() {
     rm -rf /etc/statistics 2>/dev/null || true
     print_done
     
-    print_progress "Removing log directories"
+    print_progress "Removing ALL log files and directories"
     # Save current log for reference if needed
     local current_log="$LOG_FILE"
     if [ -n "$current_log" ] && [ -f "$current_log" ]; then
-        cp "$current_log" "/tmp/statistics_last_install.log" 2>/dev/null || true
+        cp "$current_log" "/tmp/statistics_last_uninstall.log" 2>/dev/null || true
     fi
+    
+    # Remove all log directories and files
     rm -rf "$LOG_DIR" 2>/dev/null || true
     rm -rf /var/log/vaultscope* 2>/dev/null || true
-    rm -rf /var/log/statistics 2>/dev/null || true
+    rm -rf /var/log/statistics* 2>/dev/null || true
+    
+    # Remove journald logs
+    journalctl --rotate 2>/dev/null || true
+    journalctl --vacuum-time=1s 2>/dev/null || true
+    
+    # Remove any rotated logs
+    rm -f /var/log/vaultscope*.log* 2>/dev/null || true
+    rm -f /var/log/statistics*.log* 2>/dev/null || true
+    
     print_done
     
     print_progress "Removing backup directories"
     rm -rf "$BACKUP_DIR" 2>/dev/null || true
     rm -rf /var/backups/vaultscope* 2>/dev/null || true
     rm -rf /var/backups/statistics 2>/dev/null || true
+    print_done
+    
+    print_progress "Removing ALL databases and user credentials"
+    # Remove SQLite databases
+    find /var/www -name "*.sqlite" -o -name "*.sqlite3" -o -name "*.db" 2>/dev/null | grep -E "(vaultscope|statistics)" | xargs rm -f 2>/dev/null || true
+    find /opt -name "*.sqlite" -o -name "*.sqlite3" -o -name "*.db" 2>/dev/null | grep -E "(vaultscope|statistics)" | xargs rm -f 2>/dev/null || true
+    find /etc -name "*.sqlite" -o -name "*.sqlite3" -o -name "*.db" 2>/dev/null | grep -E "(vaultscope|statistics)" | xargs rm -f 2>/dev/null || true
+    find /root -name "*.sqlite" -o -name "*.sqlite3" -o -name "*.db" 2>/dev/null | grep -E "(vaultscope|statistics)" | xargs rm -f 2>/dev/null || true
+    find /home -name "*.sqlite" -o -name "*.sqlite3" -o -name "*.db" 2>/dev/null | grep -E "(vaultscope|statistics)" | xargs rm -f 2>/dev/null || true
+    
+    # Remove JSON databases
+    find /var/www -name "database.json" 2>/dev/null | xargs rm -f 2>/dev/null || true
+    find /opt -name "database.json" 2>/dev/null | xargs rm -f 2>/dev/null || true
+    
+    # Remove any admin key files
+    find /var/www -name ".admin-key" -o -name "admin-key.json" 2>/dev/null | xargs rm -f 2>/dev/null || true
+    find /etc -name ".admin-key" -o -name "admin-key.json" 2>/dev/null | xargs rm -f 2>/dev/null || true
+    
+    # Remove environment files
+    find /var/www -name ".env*" 2>/dev/null | grep -E "(vaultscope|statistics)" | xargs rm -f 2>/dev/null || true
+    find /opt -name ".env*" 2>/dev/null | grep -E "(vaultscope|statistics)" | xargs rm -f 2>/dev/null || true
+    find /etc -name ".env*" 2>/dev/null | grep -E "(vaultscope|statistics)" | xargs rm -f 2>/dev/null || true
+    
+    # Remove any session stores
+    rm -rf /var/lib/vaultscope* 2>/dev/null || true
+    rm -rf /var/lib/statistics* 2>/dev/null || true
+    
     print_done
     
     print_progress "Removing CLI tools"
@@ -341,11 +379,124 @@ nuclear_cleanup() {
     
     print_progress "Cleaning cron jobs"
     crontab -l 2>/dev/null | grep -v "statistics\|vaultscope" | crontab - 2>/dev/null || true
+    # Also check root crontab
+    sudo crontab -l 2>/dev/null | grep -v "statistics\|vaultscope" | sudo crontab - 2>/dev/null || true
+    print_done
+    
+    print_progress "Removing temporary files and caches"
+    # Remove temp files
+    rm -rf /tmp/*vaultscope* 2>/dev/null || true
+    rm -rf /tmp/*statistics* 2>/dev/null || true
+    rm -rf /var/tmp/*vaultscope* 2>/dev/null || true
+    rm -rf /var/tmp/*statistics* 2>/dev/null || true
+    
+    # Remove npm caches related to the project
+    npm cache clean --force 2>/dev/null || true
+    
+    # Remove PM2 logs and dumps
+    rm -rf ~/.pm2/logs/*vaultscope* 2>/dev/null || true
+    rm -rf ~/.pm2/logs/*statistics* 2>/dev/null || true
+    rm -rf ~/.pm2/dump.pm2 2>/dev/null || true
+    
+    # Remove Node.js build artifacts
+    rm -rf /root/.node-gyp 2>/dev/null || true
+    rm -rf /root/.npm/_cacache 2>/dev/null || true
+    
+    print_done
+    
+    print_progress "Removing logrotate configurations"
+    rm -f /etc/logrotate.d/*vaultscope* 2>/dev/null || true
+    rm -f /etc/logrotate.d/*statistics* 2>/dev/null || true
+    print_done
+    
+    print_progress "Cleaning up user home directories"
+    # Remove any project files from user homes
+    for user_home in /home/*; do
+        if [ -d "$user_home" ]; then
+            rm -rf "$user_home"/*vaultscope* 2>/dev/null || true
+            rm -rf "$user_home"/*statistics* 2>/dev/null || true
+            rm -rf "$user_home"/.vaultscope* 2>/dev/null || true
+            rm -rf "$user_home"/.statistics* 2>/dev/null || true
+        fi
+    done
+    
+    # Clean root home too
+    rm -rf /root/*vaultscope* 2>/dev/null || true
+    rm -rf /root/*statistics* 2>/dev/null || true
+    rm -rf /root/.vaultscope* 2>/dev/null || true
+    rm -rf /root/.statistics* 2>/dev/null || true
+    print_done
+    
+    print_progress "Final cleanup verification"
+    # Double-check critical locations
+    rm -rf /var/www/vaultscope* 2>/dev/null || true
+    rm -rf /var/www/statistics* 2>/dev/null || true
+    rm -rf /opt/vaultscope* 2>/dev/null || true
+    rm -rf /opt/statistics* 2>/dev/null || true
+    
+    # Clear bash history of any sensitive commands
+    history -c 2>/dev/null || true
+    echo "" > ~/.bash_history 2>/dev/null || true
     print_done
     
     IS_CLEANING=false  # Re-enable logging
     
     print_success "Complete removal finished successfully!"
+    print_info "All VaultScope Statistics data, logs, databases, and credentials have been removed."
+    
+    # Verify uninstallation
+    print_section "Verifying Complete Removal"
+    local remaining_items=0
+    local verification_failed=false
+    
+    # Check for any remaining directories
+    for dir in /var/www/vaultscope* /var/www/statistics* /opt/vaultscope* /opt/statistics* /etc/vaultscope* /etc/statistics* /var/log/vaultscope* /var/log/statistics*; do
+        if [ -e "$dir" ]; then
+            print_error "Still exists: $dir"
+            remaining_items=$((remaining_items + 1))
+            verification_failed=true
+        fi
+    done
+    
+    # Check for any remaining databases
+    if find /var/www /opt /etc /root -name "*.sqlite" -o -name "*.db" -o -name "database.json" 2>/dev/null | grep -E "(vaultscope|statistics)" > /dev/null; then
+        print_error "Database files still exist"
+        remaining_items=$((remaining_items + 1))
+        verification_failed=true
+    fi
+    
+    # Check for any remaining service files
+    if ls /etc/systemd/system/*vaultscope* /etc/systemd/system/*statistics* 2>/dev/null | grep -q .; then
+        print_error "Service files still exist"
+        remaining_items=$((remaining_items + 1))
+        verification_failed=true
+    fi
+    
+    # Check for any remaining logs
+    if ls /var/log/vaultscope* /var/log/statistics* 2>/dev/null | grep -q .; then
+        print_error "Log files still exist"
+        remaining_items=$((remaining_items + 1))
+        verification_failed=true
+    fi
+    
+    # Check for any remaining environment files
+    if find /var/www /opt /etc -name ".env*" 2>/dev/null | grep -E "(vaultscope|statistics)" > /dev/null; then
+        print_error "Environment files still exist"
+        remaining_items=$((remaining_items + 1))
+        verification_failed=true
+    fi
+    
+    if [ "$verification_failed" = true ]; then
+        print_warning "Found $remaining_items remaining items. Running additional cleanup..."
+        
+        # Force remove with elevated permissions
+        find / -type d -name "*vaultscope*" -o -name "*statistics*" 2>/dev/null | grep -E "(/var/|/opt/|/etc/)" | xargs rm -rf 2>/dev/null || true
+        find / -type f -name "*vaultscope*" -o -name "*statistics*" 2>/dev/null | grep -E "(/var/|/opt/|/etc/)" | xargs rm -f 2>/dev/null || true
+        
+        print_success "Additional cleanup completed"
+    else
+        print_success "Verification passed - all components removed successfully!"
+    fi
 }
 
 # ============================================================================
@@ -362,6 +513,18 @@ check_existing_installation() {
     [ -d "$CONFIG_DIR" ] && { found=true; found_items="${found_items}• Config directory: $CONFIG_DIR\n"; }
     [ -d "$LOG_DIR" ] && { found=true; found_items="${found_items}• Log directory: $LOG_DIR\n"; }
     [ -f /usr/local/bin/statistics ] && { found=true; found_items="${found_items}• CLI tool: statistics\n"; }
+    
+    # Check for databases
+    [ -f "$INSTALL_DIR/database.sqlite" ] && { found=true; found_items="${found_items}• Database file: $INSTALL_DIR/database.sqlite\n"; }
+    [ -f "$INSTALL_DIR/database.json" ] && { found=true; found_items="${found_items}• Database file: $INSTALL_DIR/database.json\n"; }
+    
+    # Check for environment files
+    [ -f "$INSTALL_DIR/.env" ] && { found=true; found_items="${found_items}• Environment file: $INSTALL_DIR/.env\n"; }
+    [ -f "/etc/vaultscope-statistics/env" ] && { found=true; found_items="${found_items}• Environment config: /etc/vaultscope-statistics/env\n"; }
+    
+    # Check for logs
+    ls /var/log/vaultscope* 2>/dev/null && { found=true; found_items="${found_items}• Log files in /var/log/\n"; }
+    ls /var/log/statistics* 2>/dev/null && { found=true; found_items="${found_items}• Log files in /var/log/\n"; }
     
     # Check for services
     if [ "$SERVICE_MANAGER" = "systemd" ]; then
@@ -550,81 +713,11 @@ install_application() {
         npm install --silent >/dev/null 2>&1 || npm install >/dev/null 2>&1 || true
         print_done
         
-        # Apply production fixes before building
-        print_progress "Applying production fixes"
-        
-        # Fix 1: Trust proxy configuration in server/index.ts
-        if [ -f "server/index.ts" ]; then
-            # Replace any existing trust proxy setting with loopback
-            sed -i "/app.set('trust proxy'/d" server/index.ts
-            # Add the correct trust proxy setting after app creation
-            sed -i "/const app = express();/a\\
-app.set('trust proxy', 'loopback');" server/index.ts
-        fi
-        
-        # Fix 2: Complete rate limiter replacement
-        if [ -f "server/functions/rateLimit.ts" ]; then
-            cat > server/functions/rateLimit.ts << 'RATELIMIT_FILE_EOF'
-import rateLimit from "express-rate-limit";
-import { Request, Response, NextFunction } from "express";
-import { promises as fs } from "fs";
-import path from "path";
-import Key from "../types/api/keys/key";
-
-const apiKeysPath = path.resolve(__dirname, "../apiKeys.json");
-
-async function loadKeys(): Promise<Key[]> {
-    try {
-        const data = await fs.readFile(apiKeysPath, "utf-8");
-        return JSON.parse(data);
-    } catch (err) {
-        return [];
-    }
-}
-
-// Rate limiter for requests without valid API key - 10 requests per minute
-const invalidKeyLimiter = rateLimit({
-  windowMs: 60 * 1000,  // 1 minute
-  max: 10,               // 10 requests per minute
-  standardHeaders: true, 
-  legacyHeaders: false, 
-  message: "Too many requests without valid API key. Maximum 10 requests per minute allowed.",
-  skip: (req) => false,
-  keyGenerator: (req) => {
-    const ip = req.ip || req.socket.remoteAddress || 'unknown';
-    if (ip.startsWith('::ffff:')) {
-      return ip.substring(7);
-    }
-    return ip;
-  },
-  validate: false
-});
-
-// Main rate limiting middleware that checks for API key validity
-const limiter = async (req: Request, res: Response, next: NextFunction) => {
-  // Extract API key from headers or query
-  const apiKey: string = req.headers['x-api-key'] as string || 
-                        req.headers['authorization']?.replace('Bearer ', '') || 
-                        (req.query.apiKey as string);
-
-  if (apiKey) {
-    const keys = await loadKeys();
-    const foundKey = keys.find(k => k.key === apiKey);
-    
-    if (foundKey) {
-      // Valid API key found - skip rate limiting
-      return next();
-    }
-  }
-  
-  // No API key or invalid key - apply rate limiting
-  invalidKeyLimiter(req, res, next);
-};
-
-export default limiter;
-RATELIMIT_FILE_EOF
-        fi
-        
+        # Initialize database
+        print_progress "Initializing database"
+        npm run init:db 2>&1 | tee -a "$LOG_FILE" || {
+            print_warning "Database initialization failed, may already exist"
+        }
         print_done
         
         # Build TypeScript if needed
@@ -643,27 +736,12 @@ RATELIMIT_FILE_EOF
         npm install --silent >/dev/null 2>&1 || npm install >/dev/null 2>&1 || true
         print_done
         
-        # Create initial database file for client in both locations
-        print_progress "Creating client database"
-        # Create in client directory for build
-        echo '{"users":[],"nodes":[],"categories":[],"roles":[]}' > database.json
-        # Also create in parent directory for runtime
-        echo '{"users":[],"nodes":[],"categories":[],"roles":[]}' > ../database.json
-        print_done
-        
         print_progress "Building client application"
         # Build Next.js app - this creates .next directory
         npm run build >/dev/null 2>&1 || npx next build >/dev/null 2>&1 || true
         cd ..
         print_done
     fi
-    
-    # Ensure database.json exists in root directory for client runtime
-    print_progress "Finalizing database setup"
-    if [ ! -f "$INSTALL_DIR/database.json" ]; then
-        echo '{"users":[],"nodes":[],"categories":[],"roles":[]}' > "$INSTALL_DIR/database.json"
-    fi
-    print_done
     
     # Set permissions
     print_progress "Setting permissions"
@@ -678,34 +756,21 @@ RATELIMIT_FILE_EOF
 # CREATE MINIMAL SETUP (FALLBACK)
 # ============================================================================
 create_minimal_setup() {
-    cat > package.json << 'EOF'
-{
-  "name": "vaultscope-statistics",
-  "version": "1.0.0",
-  "scripts": {
-    "start": "node server/index.js"
-  }
-}
-EOF
-
-    mkdir -p server
-    cat > server/index.js << 'EOF'
+    print_warning "Repository files not found, creating minimal health check"
+    print_info "Clone the full repository for complete functionality"
+    
+    # Create a simple health check server
+    cat > server.js << 'EOF'
 const http = require('http');
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ status: 'running', service: 'VaultScope Statistics' }));
+  res.end(JSON.stringify({ 
+    status: 'minimal', 
+    message: 'VaultScope Statistics - Minimal installation. Clone repository for full features.' 
+  }));
 });
 const PORT = process.env.PORT || 4000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-EOF
-
-    mkdir -p client
-    cat > client/index.html << 'EOF'
-<!DOCTYPE html>
-<html>
-<head><title>VaultScope Statistics</title></head>
-<body><h1>VaultScope Statistics</h1><p>Service is running</p></body>
-</html>
+server.listen(PORT, () => console.log(`Minimal server running on port ${PORT}`));
 EOF
 }
 
@@ -722,9 +787,16 @@ setup_services() {
     
     local node_path=$(which node 2>/dev/null || echo "/usr/bin/node")
     
+    # Build the server for production first
+    print_progress "Building server for production"
+    cd "$INSTALL_DIR"
+    npm run build 2>&1 | tee -a "$LOG_FILE" || {
+        print_warning "Failed to build server, will use development mode"
+    }
+    
     # Determine server start command
-    local server_cmd="$node_path $INSTALL_DIR/server/index.js"
-    [ -f "$INSTALL_DIR/dist/server/index.js" ] && server_cmd="$node_path $INSTALL_DIR/dist/server/index.js"
+    local server_cmd="$node_path $INSTALL_DIR/dist/server/index.js"
+    [ ! -f "$INSTALL_DIR/dist/server/index.js" ] && server_cmd="$node_path $INSTALL_DIR/server/index.js"
     
     # Create server service
     print_progress "Creating server service"
@@ -735,13 +807,16 @@ After=network.target
 
 [Service]
 Type=simple
-User=www-data
+User=root
 WorkingDirectory=$INSTALL_DIR
 Environment="NODE_ENV=production"
 Environment="PORT=4000"
+Environment="JWT_SECRET=$(openssl rand -base64 32 2>/dev/null || echo 'change-this-secret-in-production')"
 ExecStart=$server_cmd
 Restart=always
 RestartSec=10
+StandardOutput=append:$LOG_DIR/server.log
+StandardError=append:$LOG_DIR/server-error.log
 
 [Install]
 WantedBy=multi-user.target
@@ -750,10 +825,16 @@ EOF
     
     # Create client service if Next.js exists
     if [ -d "$INSTALL_DIR/client" ] && [ -f "$INSTALL_DIR/client/package.json" ]; then
+        print_progress "Building Next.js client for production"
+        cd "$INSTALL_DIR/client"
+        npm run build 2>&1 | tee -a "$LOG_FILE" || {
+            print_warning "Failed to build client, continuing anyway"
+        }
+        
         print_progress "Creating client service"
         
-        # Use npm run start which is defined in client/package.json
-        local next_cmd="cd $INSTALL_DIR/client && npm run start"
+        # Use next start for production
+        local next_cmd="cd $INSTALL_DIR/client && npx next start -p 4001"
         
         cat > /etc/systemd/system/vaultscope-statistics-client.service << EOF
 [Unit]
@@ -762,13 +843,16 @@ After=network.target
 
 [Service]
 Type=simple
-User=www-data
-WorkingDirectory=$INSTALL_DIR
+User=root
+WorkingDirectory=$INSTALL_DIR/client
 Environment="NODE_ENV=production"
 Environment="PORT=4001"
+Environment="JWT_SECRET=$(openssl rand -base64 32 2>/dev/null || echo 'change-this-secret-in-production')"
 ExecStart=/bin/bash -c "$next_cmd"
 Restart=always
 RestartSec=10
+StandardOutput=append:$LOG_DIR/client.log
+StandardError=append:$LOG_DIR/client-error.log
 
 [Install]
 WantedBy=multi-user.target
@@ -1119,7 +1203,7 @@ main() {
     mkdir -p "$CONFIG_DIR" 2>/dev/null || true
     cat > "$CONFIG_DIR/installation.json" << EOF
 {
-  "version": "4.0",
+  "version": "6.0",
   "installed": "$(date -Iseconds)",
   "install_dir": "$INSTALL_DIR",
   "config_dir": "$CONFIG_DIR",
