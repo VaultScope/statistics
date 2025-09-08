@@ -33,7 +33,9 @@ const invalidKeyLimiter = rateLimit({
       return ip.substring(7); // Return just the IPv4 part
     }
     return ip;
-  }
+  },
+  // Disable validation warnings for custom keyGenerator
+  validate: false
 });
 
 // Main rate limiting middleware that checks for API key validity
