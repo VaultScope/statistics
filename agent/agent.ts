@@ -8,6 +8,7 @@ import fs from 'fs';
 import path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { MetricsData } from '../types/network';
 
 const execAsync = promisify(exec);
 
@@ -51,9 +52,13 @@ class VaultScopeAgent {
     // Initial collection
     await this.collectAndSend();
     
-    // Schedule periodic collection
+    // Schedule periodic collection with error handling
     this.intervalId = setInterval(async () => {
-      await this.collectAndSend();
+      try {
+        await this.collectAndSend();
+      } catch (error) {
+        console.error('Error in periodic collection:', error);
+      }
     }, this.config.interval * 1000);
 
     // Handle graceful shutdown
@@ -362,7 +367,7 @@ class VaultScopeAgent {
     }));
   }
 
-  private async sendMetrics(metrics: any) {
+  private async sendMetrics(metrics: MetricsData) {
     try {
       const response = await axios.post(
         `${this.config.serverUrl}/api/agent/metrics`,

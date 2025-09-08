@@ -264,7 +264,7 @@ export class InfluxDBService {
 
     try {
       const results: any[] = [];
-      await this.queryApi.collectRows(query, (row, tableMeta) => {
+      await this.queryApi.collectRows(query, (row: any, tableMeta: any) => {
         const o = tableMeta.toObject(row);
         results.push(o);
       });
@@ -297,7 +297,7 @@ export class InfluxDBService {
 
     try {
       const results: any[] = [];
-      await this.queryApi.collectRows(query, (row, tableMeta) => {
+      await this.queryApi.collectRows(query, (row: any, tableMeta: any) => {
         const o = tableMeta.toObject(row);
         results.push({
           time: o._time,
@@ -327,7 +327,7 @@ export class InfluxDBService {
 
     try {
       const results: any[] = [];
-      await this.queryApi.collectRows(query, (row, tableMeta) => {
+      await this.queryApi.collectRows(query, (row: any, tableMeta: any) => {
         results.push(tableMeta.toObject(row));
       });
       return results;
@@ -393,7 +393,7 @@ export class InfluxDBService {
       let totalPoints = 0;
       let availablePoints = 0;
 
-      await this.queryApi.collectRows(query, (row, tableMeta) => {
+      await this.queryApi.collectRows(query, (row: any, tableMeta: any) => {
         const o = tableMeta.toObject(row);
         totalPoints++;
         if (o._value > 0) availablePoints++;
