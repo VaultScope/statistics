@@ -119,7 +119,10 @@ print_done() {
 setup_logging() {
     mkdir -p "$LOG_DIR"
     touch "$LOG_FILE"
-    exec 2> >(tee -a "$LOG_FILE" >&2)
+    # Only redirect stderr if we successfully created the log file
+    if [ -f "$LOG_FILE" ]; then
+        exec 2> >(tee -a "$LOG_FILE" >&2)
+    fi
 }
 
 log() {
@@ -326,11 +329,11 @@ cleanup_complete_installation() {
     rm -f /etc/cloudflared/*statistics*
     print_done
     
-    # Remove directories
+    # Remove directories (but keep log dir for current installation)
     print_progress "Removing installation files"
     rm -rf "$INSTALL_DIR"
     rm -rf "$CONFIG_DIR"
-    rm -rf "$LOG_DIR"
+    # Don't remove LOG_DIR yet - we're still logging to it
     print_done
     
     # Remove CLI tools
@@ -606,7 +609,11 @@ setup_application() {
     mkdir -p "$INSTALL_DIR"
     mkdir -p "$CONFIG_DIR"
     mkdir -p "$LOG_DIR"
-    chown -R www-data:www-data "$LOG_DIR" 2>/dev/null || true
+    
+    # Set permissions if www-data exists
+    if id -u www-data > /dev/null 2>&1; then
+        chown -R www-data:www-data "$LOG_DIR" 2>/dev/null || true
+    fi
     print_done
     
     # Setup application files
@@ -644,8 +651,10 @@ setup_application() {
         fi
     fi
     
-    # Set permissions
-    chown -R www-data:www-data "$INSTALL_DIR" 2>/dev/null || true
+    # Set permissions if www-data exists
+    if id -u www-data > /dev/null 2>&1; then
+        chown -R www-data:www-data "$INSTALL_DIR" 2>/dev/null || true
+    fi
     
     # Copy uninstaller if exists
     if [ -f "$INSTALL_DIR/uninstaller.sh" ]; then
@@ -780,6 +789,18 @@ create_services() {
     # Get Node.js path
     local node_path=$(which node)
     
+    # Determine service user
+    local service_user="www-data"
+    if ! id -u www-data > /dev/null 2>&1; then
+        # www-data doesn't exist, use nobody or create it
+        if id -u nobody > /dev/null 2>&1; then
+            service_user="nobody"
+        else
+            service_user="root"
+            print_warning "Running services as root (not recommended for production)"
+        fi
+    fi
+    
     # Server service
     if [ "$INSTALL_SERVER" = true ]; then
         cat > /etc/systemd/system/statistics-server.service << EOF
@@ -789,8 +810,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=www-data
-Group=www-data
+User=$service_user
+Group=$service_user
 WorkingDirectory=$INSTALL_DIR
 Environment="NODE_ENV=production"
 Environment="PORT=4000"
@@ -831,8 +852,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=www-data
-Group=www-data
+User=$service_user
+Group=$service_user
 WorkingDirectory=$INSTALL_DIR
 Environment="NODE_ENV=production"
 Environment="PORT=3000"
