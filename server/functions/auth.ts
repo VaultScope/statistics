@@ -5,7 +5,8 @@ import Key from "../types/api/keys/key";
 import Permissions from "../types/api/keys/permissions";
 import { logApiRequest } from "./logs/apiLogger";
 
-const apiKeysPath = path.resolve(__dirname, "../apiKeys.json");
+// Look for apiKeys.json in the root project directory
+const apiKeysPath = path.resolve(process.cwd(), "apiKeys.json");
 
 // Cache and reload every 15s
 let cachedKeys: Key[] = [];

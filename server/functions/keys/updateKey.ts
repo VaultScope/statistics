@@ -3,7 +3,7 @@ import path from "path";
 import Key from "../../types/api/keys/key";
 import Permissions from "../../types/api/keys/permissions";
 
-const apiKeysPath = path.resolve(__dirname, "../../apiKeys.json");
+const apiKeysPath = path.resolve(process.cwd(), "apiKeys.json");
 
 async function loadKeys(): Promise<Key[]> {
     try {

@@ -2,7 +2,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import Key from "../../types/api/keys/key";
 
-const apiKeysPath = path.resolve(__dirname, "../../apiKeys.json");
+const apiKeysPath = path.resolve(process.cwd(), "apiKeys.json");
 
 async function loadKeys(): Promise<Key[]> {
     try {

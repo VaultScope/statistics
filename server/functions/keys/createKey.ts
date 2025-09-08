@@ -6,7 +6,7 @@ import path from "path";
 
 import makeid from "./generate";
 
-const apiKeysPath = path.resolve(__dirname, "../../apiKeys.json");
+const apiKeysPath = path.resolve(process.cwd(), "apiKeys.json");
 
 async function createApiKey(keyname: string, permissions: Permissions): Promise<Key> {
     // Ensure all permission fields are present
