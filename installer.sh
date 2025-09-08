@@ -550,6 +550,40 @@ install_application() {
         npm install --silent >/dev/null 2>&1 || npm install >/dev/null 2>&1 || true
         print_done
         
+        # Apply production fixes before building
+        print_progress "Applying production fixes"
+        
+        # Fix 1: Trust proxy configuration
+        sed -i "s/app.set('trust proxy', true)/app.set('trust proxy', 'loopback')/" server/index.ts 2>/dev/null || true
+        
+        # Fix 2: Rate limiter configuration with validation disabled
+        cat > /tmp/ratelimit-fix.ts << 'RATELIMIT_EOF'
+// Rate limiter for requests without valid API key - 10 requests per minute
+const invalidKeyLimiter = rateLimit({
+  windowMs: 60 * 1000,  // 1 minute
+  max: 10,               // 10 requests per minute
+  standardHeaders: true, 
+  legacyHeaders: false, 
+  message: "Too many requests without valid API key. Maximum 10 requests per minute allowed.",
+  skip: (req) => false,
+  keyGenerator: (req) => {
+    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    if (ip.startsWith('::ffff:')) {
+      return ip.substring(7);
+    }
+    return ip;
+  },
+  validate: false
+});
+RATELIMIT_EOF
+        
+        # Apply rate limiter fix
+        sed -i '/const invalidKeyLimiter = rateLimit({/,/^});$/d' server/functions/rateLimit.ts 2>/dev/null || true
+        sed -i '/^async function loadKeys/r /tmp/ratelimit-fix.ts' server/functions/rateLimit.ts 2>/dev/null || true
+        rm -f /tmp/ratelimit-fix.ts
+        
+        print_done
+        
         # Build TypeScript if needed
         if [ -f "tsconfig.json" ]; then
             print_progress "Building TypeScript server"
