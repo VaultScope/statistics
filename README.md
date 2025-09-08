@@ -2,10 +2,10 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-3.0.0-blue.svg?style=for-the-badge)
-![License](https://img.shields.io/badge/Apache-2.0-green.svg?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-4.0.0-blue.svg?style=for-the-badge)
+![License](https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge)
 ![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg?style=for-the-badge)
-![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg?style=for-the-badge)
+![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey.svg?style=for-the-badge)
 
 **Enterprise-grade system monitoring and statistics platform with real-time analytics**
 
@@ -39,7 +39,7 @@ VaultScope Statistics is a comprehensive system monitoring solution that provide
 - **Multi-Node Support** - Monitor unlimited servers from a single dashboard
 - **Security First** - API key authentication with role-based permissions
 - **Easy Deployment** - One-command installation with automatic configuration
-- **Cross-Platform** - Works seamlessly on Linux, macOS, and Windows
+- **Cross-Platform** - Works seamlessly on Linux and macOS
 - **Open Source** - Fully transparent and customizable
 
 ## ✨ Features
@@ -51,29 +51,30 @@ VaultScope Statistics is a comprehensive system monitoring solution that provide
 - **Network Analysis** - Bandwidth monitoring, packet sniffing (requires root)
 - **Process Management** - Live process list with resource usage
 - **Hardware Detection** - Complete system specifications
+- **Speed Testing** - Network bandwidth testing capabilities
 
 ### 🔐 Security & Access Control
 - **API Key Authentication** - Secure token-based access
 - **Role-Based Permissions** - Granular access control system
-- **Audit Logging** - Complete API access and activity logs
+- **Session Management** - Secure session handling
 - **Rate Limiting** - Protection against API abuse
 - **CORS Support** - Configurable cross-origin policies
 
 ### 🎨 Web Dashboard
-- **Modern UI** - Clean, responsive Next.js interface
+- **Modern UI** - Clean, responsive Next.js 15 interface
 - **Real-Time Charts** - Interactive graphs using Recharts
 - **Dark Mode** - Eye-friendly dark theme support
 - **Multi-Node View** - Manage multiple servers from one place
 - **User Management** - Create and manage user accounts
-- **Role System** - Admin, Operator, Viewer, and custom roles
+- **Profile Management** - User profile customization
 
 ### 🛠️ Management Tools
 - **CLI Interface** - Powerful command-line tools
-- **Auto-Installation** - Intelligent setup script with OS detection
-- **Service Management** - Systemd/launchd integration
-- **Reverse Proxy** - Built-in support for Nginx, Apache, Cloudflare
+- **Auto-Installation** - Bulletproof v4.0 installer with OS detection
+- **Service Management** - Systemd integration
+- **Reverse Proxy** - Built-in support for Nginx with auto-configuration
 - **SSL/TLS** - Automatic Let's Encrypt certificate setup
-- **Diagnostics** - Built-in troubleshooting tools
+- **Complete Uninstaller** - Nuclear cleanup option removes all traces
 
 ## 🏗️ Architecture
 
@@ -84,89 +85,110 @@ vaultscope-statistics/
 │   ├── functions/            # Core functionality modules
 │   │   ├── keys/            # API key management
 │   │   ├── logs/            # Logging and monitoring
-│   │   ├── stats/           # Statistics collection
-│   │   │   ├── power/      # System power controls
-│   │   │   ├── speedtest/  # Network speed testing
-│   │   │   └── utils/      # Utility functions
-│   │       ├── process/    # Process management
-│   │       └── system/     # System information
+│   │   │   └── network/    # Network packet sniffing
+│   │   └── stats/          # Statistics collection
+│   │       ├── power/      # System power controls
+│   │       ├── speedtest.ts # Network speed testing
+│   │       └── utils/      # Utility functions
+│   │           ├── process/    # Process management
+│   │           └── system/     # System information
 │   ├── cli/                 # CLI tool implementations
-│   └── types/               # TypeScript type definitions
+│   │   └── apikey.ts       # API key management CLI
+│   ├── database/           # Database management
+│   │   └── db.ts          # Better-SQLite3 database
+│   └── types/             # TypeScript type definitions
 │
 ├── client/                   # Frontend Web Application
 │   ├── app/                 # Next.js 15 app directory
 │   │   ├── api/            # API route handlers
 │   │   │   ├── auth/      # Authentication endpoints
 │   │   │   ├── nodes/     # Node management
-│   │   │   ├── users/     # User management
-│   │   │   └── roles/     # Role management
+│   │   │   ├── profile/   # User profile management
+│   │   │   └── users/     # User management
 │   │   ├── components/     # React components
-│   │   └── (dashboard)/   # Dashboard pages
-│   ├── lib/                # Utility libraries
-│   └── public/            # Static assets
+│   │   │   ├── dashboard/ # Dashboard components
+│   │   │   └── ui/       # UI components
+│   │   ├── (dashboard)/   # Dashboard pages
+│   │   └── login/        # Authentication pages
+│   ├── lib/               # Utility libraries
+│   │   ├── auth.ts       # Authentication helpers
+│   │   ├── db-json.ts    # JSON database for client
+│   │   └── api.ts        # API client utilities
+│   └── public/           # Static assets
 │
-├── installer.sh            # Linux/macOS installer
-├── uninstaller.sh         # Clean uninstallation script
-├── diagnose.sh           # Diagnostic tool
-├── cli.js                # CLI entry point
-├── package.json          # Project dependencies
-├── tsconfig.json         # TypeScript configuration
-└── CLAUDE.md            # AI assistance documentation
+├── dist/                    # Compiled TypeScript output
+│   └── server/             # Compiled server code
+│       └── index.js       # Main server entry
+│
+├── installer.sh            # v4.0 Bulletproof installer
+├── cli.js                 # CLI entry point
+├── package.json          # Root dependencies
+├── tsconfig.json        # TypeScript configuration
+└── CLAUDE.md           # AI assistance documentation
 ```
 
 ## 🚀 Installation
 
 ### 🎯 Quick Installation (Recommended)
 
-#### Linux/macOS
+#### One-Command Installation
 
 ```bash
-# Download and run the installer
+# Download and run the v4.0 installer
 curl -fsSL https://raw.githubusercontent.com/vaultscope/statistics/main/installer.sh -o installer.sh
 sudo bash installer.sh
-
-# The installer will:
-# ✅ Detect your operating system
-# ✅ Check for existing installations
-# ✅ Install Node.js if needed
-# ✅ Set up the application
-# ✅ Configure system services
-# ✅ Set up reverse proxy (optional)
-# ✅ Configure SSL certificates (optional)
 ```
 
-#### Installation Options
+#### What the Installer Does
 
-During installation, you'll be prompted to:
+The v4.0 Bulletproof installer will:
+- ✅ Detect your operating system (Linux/macOS)
+- ✅ Check for existing installations with uninstall option
+- ✅ Perform nuclear cleanup if requested
+- ✅ Install Node.js v20 if needed
+- ✅ Clone and build the application
+- ✅ Compile TypeScript to JavaScript
+- ✅ Build Next.js client application
+- ✅ Create systemd services with correct paths
+- ✅ Configure Nginx reverse proxy (optional)
+- ✅ Set up SSL certificates with Let's Encrypt (optional)
+- ✅ Configure proper file permissions
 
-1. **Choose Components**
-   - Server only (API backend)
-   - Client only (Web dashboard)
-   - Both (Recommended)
+#### Installation Menu Options
 
-2. **Configure Reverse Proxy** (Optional)
-   - Nginx (Recommended)
-   - Apache
-   - Cloudflare Tunnel
-   - None (direct access)
+```
+What would you like to do?
+  1) COMPLETELY UNINSTALL and exit
+  2) Remove everything and install fresh [Recommended]
+  3) Cancel
+```
 
-3. **Set Up Domains** (If using reverse proxy)
+#### Service Configuration
+
+During installation, you'll be prompted for:
+
+1. **Reverse Proxy Setup** (Optional)
    - API domain (e.g., api.yourdomain.com)
    - Client domain (e.g., app.yourdomain.com)
 
-4. **Configure SSL** (If using Nginx/Apache)
-   - Automatic Let's Encrypt setup
-   - Auto-renewal configuration
+2. **SSL Configuration** (Optional)
+   - Email for Let's Encrypt certificates
+   - Automatic HTTPS setup
+
+### Default Ports
+
+- **API Server**: Port 4000
+- **Web Client**: Port 4001
 
 ### 📦 Manual Installation
 
 #### Prerequisites
 
 - Node.js 18.0 or higher
-- npm or yarn
+- npm 8.0 or higher
 - Git
-- Linux/macOS/Windows
-- Root/Administrator access (for system monitoring features)
+- Linux or macOS
+- Root/sudo access (for system monitoring features)
 
 #### Step-by-Step Guide
 
@@ -178,220 +200,120 @@ cd statistics
 
 2. **Install dependencies**
 ```bash
+# Install root dependencies
 npm install
+
+# Install client dependencies
+cd client && npm install && cd ..
+
+# Install server dependencies (if separate)
+cd server && npm install && cd ..
 ```
 
 3. **Build the project**
 ```bash
-# Build TypeScript files
+# Build TypeScript server
 npm run build
 
 # Build Next.js client
 npm run client:build
 ```
 
-4. **Configure environment**
+4. **Start services**
 ```bash
-# Copy example configurations
-cp .env.example .env
-cp client/.env.example client/.env
+# Production mode
+npm run server:prod  # Start API server on port 4000
+npm run client:prod  # Start web client on port 4001
 
-# Edit configuration files
-nano .env
-nano client/.env
+# Development mode
+npm run dev  # Starts both server and client concurrently
 ```
-
-5. **Start services**
-```bash
-# Start server (API)
-npm run server
-
-# In another terminal, start client (Web UI)
-npm run client
-```
-
-6. **Access the application**
-   - API Server: http://localhost:4000
-   - Web Dashboard: http://localhost:3000
-
-### 🐳 Docker Installation
-
-```bash
-# Using Docker Compose (Recommended)
-docker-compose up -d
-
-# Or using individual containers
-docker run -d -p 4000:4000 --name vaultscope-server vaultscope/statistics:server
-docker run -d -p 3000:3000 --name vaultscope-client vaultscope/statistics:client
-
-# View logs
-docker logs vaultscope-server
-docker logs vaultscope-client
-```
-
-### ☁️ Cloud Deployment
-
-<details>
-<summary><b>Deploy to AWS</b></summary>
-
-```bash
-# Using AWS CLI
-aws ec2 run-instances \
-  --image-id ami-0c55b159cbfafe1f0 \
-  --instance-type t3.medium \
-  --key-name your-key \
-  --user-data file://installer.sh
-```
-</details>
-
-<details>
-<summary><b>Deploy to DigitalOcean</b></summary>
-
-```bash
-# Using doctl
-doctl compute droplet create vaultscope \
-  --image ubuntu-22-04-x64 \
-  --size s-2vcpu-4gb \
-  --region nyc1 \
-  --user-data-file installer.sh
-```
-</details>
 
 ## ⚙️ Configuration
 
-### Environment Variables
+### Service Paths
 
-#### Server Configuration (.env)
-```env
-# Server Settings
-PORT=4000
-NODE_ENV=production
+- **Installation Directory**: `/var/www/vaultscope-statistics`
+- **Configuration Directory**: `/etc/vaultscope-statistics`
+- **Log Directory**: `/var/log/vaultscope-statistics`
+- **Database Path**: `/var/www/vaultscope-statistics/data/`
 
-# Security
-API_KEY_SECRET=your-secret-key-here
-SESSION_SECRET=your-session-secret
+### Systemd Services
 
-# Database
-DB_PATH=./data/statistics.db
+Services created by installer:
+- `vaultscope-statistics-server.service` - API server
+- `vaultscope-statistics-client.service` - Web dashboard
 
-# Rate Limiting
-RATE_LIMIT_WINDOW=60000
-RATE_LIMIT_MAX=100
+### Service Management
 
-# Logging
-LOG_LEVEL=info
-LOG_DIR=/var/log/vaultscope-statistics
-```
-
-#### Client Configuration (client/.env)
-```env
-# Application
-NEXT_PUBLIC_APP_NAME=VaultScope Statistics
-NEXT_PUBLIC_APP_URL=http://localhost:3000
-
-# API Configuration
-NEXT_PUBLIC_API_URL=http://localhost:4000
-
-# Features
-NEXT_PUBLIC_ENABLE_ANALYTICS=true
-NEXT_PUBLIC_ENABLE_DARK_MODE=true
-```
-
-### Service Configuration
-
-#### Systemd (Linux)
 ```bash
-# Manage services
-sudo systemctl start statistics-server
-sudo systemctl stop statistics-server
-sudo systemctl restart statistics-server
-sudo systemctl status statistics-server
+# Start services
+sudo systemctl start vaultscope-statistics-server
+sudo systemctl start vaultscope-statistics-client
 
-# Enable auto-start
-sudo systemctl enable statistics-server
-sudo systemctl enable statistics-client
+# Stop services
+sudo systemctl stop vaultscope-statistics-server
+sudo systemctl stop vaultscope-statistics-client
+
+# Restart services
+sudo systemctl restart vaultscope-statistics-server
+sudo systemctl restart vaultscope-statistics-client
+
+# Check status
+sudo systemctl status vaultscope-statistics-server
+sudo systemctl status vaultscope-statistics-client
 
 # View logs
-sudo journalctl -u statistics-server -f
-sudo journalctl -u statistics-client -f
+sudo journalctl -u vaultscope-statistics-server -f
+sudo journalctl -u vaultscope-statistics-client -f
+
+# Enable auto-start on boot
+sudo systemctl enable vaultscope-statistics-server
+sudo systemctl enable vaultscope-statistics-client
 ```
 
-#### Reverse Proxy Configuration
+### Nginx Configuration
 
-<details>
-<summary><b>Nginx Configuration</b></summary>
+The installer automatically creates Nginx configurations:
 
-```nginx
-# /etc/nginx/sites-available/statistics-api
-server {
-    listen 80;
-    server_name api.yourdomain.com;
-    
-    location / {
-        proxy_pass http://127.0.0.1:4000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-
-# /etc/nginx/sites-available/statistics-client
-server {
-    listen 80;
-    server_name app.yourdomain.com;
-    
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-    }
-}
-```
-</details>
+- `/etc/nginx/sites-available/vaultscope-api` - API proxy
+- `/etc/nginx/sites-available/vaultscope-client` - Client proxy
 
 ## 📖 Usage
 
 ### 🌐 Web Dashboard
 
-1. **First Time Setup**
-   - Navigate to http://localhost:3000
-   - Create your admin account (first user gets admin privileges)
-   - Configure your first node
+1. **Access the Dashboard**
+   - Direct: `http://your-server:4001`
+   - Via proxy: `https://client.yourdomain.com`
 
-2. **Adding Nodes**
-   - Go to Settings → Nodes
-   - Click "Add Node"
-   - Enter server details and API key
-   - Test connection
+2. **First Time Setup**
+   - Create your admin account
+   - The first user automatically gets admin privileges
 
-3. **Monitoring**
-   - Click on any node to view real-time statistics
-   - Use tabs to switch between different metrics
-   - Export data using the export button
+3. **Managing Nodes**
+   - Navigate to Settings → Nodes
+   - Add new nodes with API endpoints
+   - Monitor multiple servers from one dashboard
 
 ### 🔧 CLI Tools
 
 #### API Key Management
 
 ```bash
-# Create API keys
-statistics apikey create "Production Server" --admin
-statistics apikey create "Monitoring Only" --viewStats
-statistics apikey create "Limited Access" --viewStats --viewApiKeys
+# Navigate to installation directory
+cd /var/www/vaultscope-statistics
 
-# List all keys
-statistics apikey list
+# Create API keys with permissions
+npm run apikey create "Server Name" -- --admin
+npm run apikey create "Monitor Only" -- --viewStats
+npm run apikey create "Power User" -- --viewStats --usePowerCommands
 
-# Delete a key
-statistics apikey delete <uuid-or-key>
+# List all API keys
+npm run apikey list
+
+# Delete an API key
+npm run apikey delete <uuid-or-key>
 
 # Available permissions:
 # --admin              All permissions
@@ -399,46 +321,29 @@ statistics apikey delete <uuid-or-key>
 # --createApiKey       Create new API keys
 # --deleteApiKey       Delete API keys
 # --viewApiKeys        List all API keys
-# --usePowerCommands   System power control
+# --usePowerCommands   System power control (reboot/shutdown)
 ```
 
-#### System Information
+#### System Tools
 
 ```bash
-# Display system info
-statistics sysinfo
+# Run system info test
+npm run sysinfo
 
 # Run speed test
-statistics speed
+npm run speed
 
-# Monitor in real-time
-statistics monitor
-
-# Process management
-statistics process list
-statistics process kill <pid>
-```
-
-### 🔍 Diagnostics
-
-```bash
-# Run built-in diagnostics
-sudo bash installer.sh --diagnose
-
-# Or use standalone diagnostic tool
-sudo bash diagnose.sh
-
-# Manual checks
-systemctl status statistics-server
-systemctl status statistics-client
-tail -f /var/log/vaultscope-statistics/server-error.log
+# Use the CLI tool
+statistics
 ```
 
 ## 🔌 API Documentation
 
 ### Authentication
 
-All API endpoints (except `/health`) require authentication:
+All API endpoints (except `/health`) require authentication via API key.
+
+#### Authentication Methods
 
 ```bash
 # Header authentication (Recommended)
@@ -447,72 +352,41 @@ curl -H "x-api-key: YOUR_API_KEY" http://localhost:4000/api/stats
 # Bearer token
 curl -H "Authorization: Bearer YOUR_API_KEY" http://localhost:4000/api/stats
 
-# Query parameter (Not recommended for production)
+# Query parameter (Not recommended)
 curl "http://localhost:4000/api/stats?apiKey=YOUR_API_KEY"
 ```
 
 ### Core Endpoints
 
+#### Health Check
+```http
+GET /health
+```
+No authentication required. Returns server status.
+
 #### System Statistics
 ```http
 GET /api/stats
 ```
-
-<details>
-<summary>Response Example</summary>
-
-```json
-{
-  "cpu": {
-    "usage": 23.5,
-    "cores": 8,
-    "speed": 3.6,
-    "temperature": 45,
-    "loadAverage": [1.2, 1.5, 1.8]
-  },
-  "memory": {
-    "total": 16777216,
-    "used": 8388608,
-    "free": 8388608,
-    "percentage": 50,
-    "swap": {
-      "total": 8388608,
-      "used": 0,
-      "free": 8388608
-    }
-  },
-  "disk": {
-    "total": 512000000,
-    "used": 256000000,
-    "free": 256000000,
-    "percentage": 50,
-    "devices": [...]
-  },
-  "network": {
-    "interfaces": [...],
-    "bandwidth": {
-      "download": 0,
-      "upload": 0
-    }
-  }
-}
-```
-</details>
-
-#### Process Management
-```http
-GET /api/processes
-POST /api/processes/:pid/kill
-```
+Returns comprehensive system statistics including CPU, memory, disk, and network.
 
 #### Hardware Information
 ```http
 GET /api/hardware
 GET /api/hardware/cpu
 GET /api/hardware/gpu
-GET /api/hardware/memory
+GET /api/hardware/ram
 GET /api/hardware/disk
+GET /api/hardware/mainboard
+GET /api/hardware/os
 ```
+
+#### Process Management
+```http
+GET /api/processes
+POST /api/processes/:pid/kill
+```
+Requires appropriate permissions for process termination.
 
 #### Network Operations
 ```http
@@ -521,62 +395,56 @@ POST /api/network/sniffer/start
 POST /api/network/sniffer/stop
 GET /api/network/sniffer/logs
 ```
+Network sniffer requires root privileges.
 
 #### Power Management
 ```http
 POST /api/power/reboot
 POST /api/power/shutdown
 ```
-*Requires `usePowerCommands` permission*
+Requires `usePowerCommands` permission.
 
 ### Rate Limiting
 
-- Default: 100 requests per minute
+- Default: 100 requests per minute per IP
 - Speedtest: 10 requests per minute
 - Power commands: 5 requests per hour
 
 ## 🔧 Troubleshooting
 
-### Common Issues & Solutions
+### Common Issues
 
-<details>
-<summary><b>Services Not Starting</b></summary>
+#### Services Not Starting
 
 ```bash
-# Check service status
-sudo systemctl status statistics-server
+# Check for old cached services
+sudo systemctl stop statistics-server statistics-client
+sudo systemctl disable statistics-server statistics-client
+sudo systemctl daemon-reload
 
-# View detailed logs
-sudo journalctl -u statistics-server -n 100
+# Verify correct services
+sudo systemctl status vaultscope-statistics-server
+sudo systemctl status vaultscope-statistics-client
+```
+
+#### Module Not Found Errors
+
+```bash
+# Reinstall dependencies
+cd /var/www/vaultscope-statistics
+npm install
+cd client && npm install && cd ..
+
+# Rebuild
+npm run build
+npm run client:build
 
 # Restart services
-sudo systemctl restart statistics-server statistics-client
-
-# Check if ports are in use
-sudo lsof -i :4000
-sudo lsof -i :3000
+sudo systemctl restart vaultscope-statistics-server
+sudo systemctl restart vaultscope-statistics-client
 ```
-</details>
 
-<details>
-<summary><b>Bad Gateway Error</b></summary>
-
-```bash
-# Verify services are running
-systemctl is-active statistics-server
-systemctl is-active statistics-client
-
-# Check if services are listening
-netstat -tln | grep -E ":(3000|4000)"
-
-# Test direct access
-curl http://localhost:4000/health
-curl http://localhost:3000/
-```
-</details>
-
-<details>
-<summary><b>Permission Denied</b></summary>
+#### Permission Issues
 
 ```bash
 # Fix ownership
@@ -584,83 +452,71 @@ sudo chown -R www-data:www-data /var/www/vaultscope-statistics
 
 # Fix permissions
 sudo chmod -R 755 /var/www/vaultscope-statistics
-
-# Check user exists
-id www-data
 ```
-</details>
 
-<details>
-<summary><b>Dependencies Missing</b></summary>
+#### Complete Reinstallation
 
 ```bash
-# Reinstall dependencies
-cd /var/www/vaultscope-statistics
-npm install
-
-# Rebuild
-npm run build
-npm run client:build
-
-# Restart services
-sudo systemctl restart statistics-server statistics-client
+# Use the installer's nuclear cleanup option
+sudo bash installer.sh
+# Select option 1 or 2 for complete removal and fresh install
 ```
-</details>
 
 ## 🚧 Development
 
-### Setting Up Development Environment
+### Development Setup
 
 ```bash
-# Clone repository
+# Clone and install
 git clone https://github.com/vaultscope/statistics.git
 cd statistics
-
-# Install dependencies
 npm install
 
 # Run in development mode
 npm run dev
 
-# Run tests
-npm test
-
-# Lint code
-npm run lint
-
-# Format code
-npm run format
+# Run individual services
+npm run server      # API server with TypeScript
+npm run client:dev  # Next.js client with hot reload
 ```
 
-### Project Scripts
+### Available Scripts
 
 ```json
 {
-  "scripts": {
-    "server": "ts-node ./server/index.ts",
-    "client": "cd client && next dev",
-    "dev": "concurrently \"npm run server\" \"npm run client\"",
-    "build": "tsc && cd client && next build",
-    "test": "jest",
-    "lint": "eslint . --ext .ts,.tsx",
-    "format": "prettier --write ."
-  }
+  "server": "ts-node ./server/index.ts",
+  "server:prod": "node dist/server/index.js",
+  "client": "cd client && next dev -p 4001",
+  "client:build": "cd client && next build",
+  "client:prod": "cd client && next start -p 4001",
+  "build": "tsc",
+  "dev": "concurrently \"npm run server\" \"npm run client\"",
+  "apikey": "ts-node ./server/cli/apikey.ts",
+  "speed": "ts-node ./server/__tests__/speedtest.ts",
+  "sysinfo": "ts-node ./server/__tests__/sysinfo.ts"
 }
 ```
 
-### Contributing
+### Project Structure
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+- **TypeScript** server compiles to `dist/` directory
+- **Next.js** client runs from `client/` directory
+- **Database** stored in `data/` directory
+- **Logs** written to `/var/log/vaultscope-statistics/`
+
+## 🤝 Contributing
+
+Contributions are welcome! Please:
 
 1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
 ## 📄 License
 
-This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 
@@ -673,15 +529,18 @@ This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENS
 - [Recharts](https://recharts.org/) - Charts
 
 ## 📞 Support
-- **[Discord](https://discord.gg/vaultscope)**
-- **Contact Developer:** cptcr@proton.me
+
+- **GitHub Issues**: [Report bugs or request features](https://github.com/vaultscope/statistics/issues)
+- **Contact Developer**: cptcr@proton.me
 
 ---
 
 <div align="center">
 
-**VaultScope Statistics** - Enterprise System Monitoring Made Simple
+**VaultScope Statistics v4.0** - Enterprise System Monitoring Made Simple
 
 Made with ❤️ by the VaultScope Team
-[GitHub](https://github.com/vaultscope)
+
+[GitHub](https://github.com/vaultscope/statistics)
+
 </div>
