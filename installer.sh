@@ -562,10 +562,12 @@ install_application() {
     if [ -d "client" ] && [ -f "client/package.json" ]; then
         print_progress "Installing client dependencies"
         cd client
+        # Ensure client has its own node_modules
         npm install --silent >/dev/null 2>&1 || npm install >/dev/null 2>&1 || true
         print_done
         
         print_progress "Building client application"
+        # Build Next.js app - this creates .next directory
         npm run build >/dev/null 2>&1 || npx next build >/dev/null 2>&1 || true
         cd ..
         print_done
@@ -655,20 +657,11 @@ EOF
     print_done
     
     # Create client service if Next.js exists
-    if [ -d "$INSTALL_DIR/client/.next" ]; then
+    if [ -d "$INSTALL_DIR/client" ] && [ -f "$INSTALL_DIR/client/package.json" ]; then
         print_progress "Creating client service"
         
-        # Determine correct next.js path
-        local next_cmd=""
-        if [ -f "$INSTALL_DIR/client/node_modules/.bin/next" ]; then
-            next_cmd="$node_path $INSTALL_DIR/client/node_modules/.bin/next start"
-        elif [ -f "$INSTALL_DIR/node_modules/.bin/next" ]; then
-            next_cmd="$node_path $INSTALL_DIR/node_modules/.bin/next start"
-        elif command -v npx &>/dev/null; then
-            next_cmd="cd $INSTALL_DIR/client && npx next start"
-        else
-            next_cmd="cd $INSTALL_DIR/client && $node_path -e \"require('next/dist/bin/next') start\""
-        fi
+        # Use npm run start which is defined in client/package.json
+        local next_cmd="cd $INSTALL_DIR/client && npm run start"
         
         cat > /etc/systemd/system/vaultscope-statistics-client.service << EOF
 [Unit]

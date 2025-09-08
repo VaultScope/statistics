@@ -13,6 +13,10 @@ import { getApiLogs, getApiKeyStats, clearApiLogs } from "./functions/logs/apiLo
 
 const app = express();
 const port = 4000;
+
+// Trust proxy when running behind reverse proxy (nginx, apache, etc)
+app.set('trust proxy', true);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());

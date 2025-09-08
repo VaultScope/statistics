@@ -30,11 +30,11 @@
     "rootDir": "."
   },
   "include": [
-    "server/**/*",
-    "client/**/*"
+    "server/**/*"
   ],
   "exclude": [
     "node_modules",
-    "dist"
+    "dist",
+    "client"
   ]
 }

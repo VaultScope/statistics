@@ -116,7 +116,7 @@ const printSystemInfo = async () => {
         `Memory Modules:`
     ];
     
-    ram.layout?.sticks.forEach((stick, index) => {
+    ram.layout?.forEach((stick: any, index: number) => {
         memoryInfo.push(`  Module ${index + 1}:`);
         memoryInfo.push(`    Size: ${formatBytes(stick.size)}`);
         memoryInfo.push(`    Type: ${stick.type}`);
@@ -127,7 +127,7 @@ const printSystemInfo = async () => {
 
     // GPU Info
     const gpu = await INDEX.getGPUInfo();
-    const gpuInfo = gpu[0].controllers.map((controller, index) => [
+    const gpuInfo = (gpu[0] as any).controllers?.map((controller: any, index: number) => [
         `GPU ${index + 1}:`,
         `  Vendor: ${controller.vendor}`,
         `  Model: ${controller.model}`,
