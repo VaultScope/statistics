@@ -126,7 +126,10 @@ setup_logging() {
 }
 
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"
+    # Only log if the log file exists (might be deleted during uninstall)
+    if [ -f "$LOG_FILE" ]; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"
+    fi
 }
 
 handle_error() {
@@ -459,8 +462,13 @@ cleanup_complete_installation() {
     
     # Remove ALL log directories
     print_progress "Removing ALL log files"
-    rm -rf "$LOG_DIR"
-    rm -rf /var/log/vaultscope-statistics
+    # Don't remove the current log directory if we're logging to it
+    if [ -n "$LOG_FILE" ] && [[ "$LOG_FILE" == /var/log/vaultscope-statistics/* ]]; then
+        # Remove everything except current log
+        find /var/log/vaultscope-statistics -type f ! -path "$LOG_FILE" -delete 2>/dev/null || true
+    else
+        rm -rf /var/log/vaultscope-statistics
+    fi
     rm -rf /var/log/vaultscope
     rm -rf /var/log/statistics
     print_done
