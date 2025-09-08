@@ -20,49 +20,19 @@ export async function middleware(request: NextRequest) {
   const sessionCookie = request.cookies.get('session')?.value;
   const hasSession = sessionCookie ? await verifySession(sessionCookie) : null;
   
-  // Check if user exists via API endpoint
-  let hasUsers = false;
-  try {
-    const checkUrl = new URL('/api/auth/check-setup', request.url);
-    const response = await fetch(checkUrl.toString(), {
-      headers: {
-        // Pass along the cookie to avoid auth issues
-        cookie: request.headers.get('cookie') || '',
-      },
-    });
-    
-    if (response.ok) {
-      const data = await response.json();
-      hasUsers = data.userExists;
-      console.log('[Middleware] User check result:', { hasUsers, pathname });
-    }
-  } catch (error) {
-    // If check fails, allow access to register page
-    console.error('Failed to check user setup:', error);
-    // Don't assume users exist - allow registration
-    hasUsers = false;
-  }
+  // Check if this is likely the first user setup
+  // We use a cookie to track if users exist after first check
+  const setupComplete = request.cookies.get('setup_complete')?.value;
   
-  // Redirect logic
-  if (!hasUsers && pathname !== '/register') {
-    return NextResponse.redirect(new URL('/register', request.url));
-  }
-  
-  // Allow access to register page if user has session (just registered)
-  if (hasUsers && pathname === '/register' && hasSession) {
-    return NextResponse.redirect(new URL('/', request.url));
-  }
-  
-  // Only redirect from register to login if user exists and no session
-  if (hasUsers && pathname === '/register' && !hasSession) {
+  // Simple redirect logic without API calls
+  if (!hasSession && !isPublicPath) {
+    // If no setup cookie and trying to access protected route, go to login
+    // The login page will redirect to register if no users exist
     return NextResponse.redirect(new URL('/login', request.url));
   }
   
-  if (!hasSession && !isPublicPath && hasUsers) {
-    return NextResponse.redirect(new URL('/login', request.url));
-  }
-  
-  if (hasSession && (pathname === '/login')) {
+  // If user has session and tries to access login/register, redirect to home
+  if (hasSession && (pathname === '/login' || pathname === '/register')) {
     return NextResponse.redirect(new URL('/', request.url));
   }
   

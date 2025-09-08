@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { LogIn } from 'lucide-react';
 
@@ -12,6 +12,27 @@ export default function LoginPage() {
     username: '',
     password: ''
   });
+
+  // Check if users exist on component mount
+  useEffect(() => {
+    const checkSetup = async () => {
+      try {
+        const res = await fetch('/api/auth/check-setup');
+        if (res.ok) {
+          const data = await res.json();
+          if (!data.userExists) {
+            // No users exist, redirect to register
+            router.push('/register');
+          }
+        }
+      } catch (err) {
+        // If check fails, stay on login page
+        console.error('Failed to check setup:', err);
+      }
+    };
+    
+    checkSetup();
+  }, [router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
