@@ -203,7 +203,7 @@ nuclear_cleanup() {
             "vaultscope-statistics-server" "vaultscope-statistics-client"
         )
         
-        # Stop and disable everything
+        # Stop and disable everything - INCLUDING OLD NAMES
         for service in "${services[@]}"; do
             systemctl stop "$service" 2>/dev/null || true
             systemctl stop "${service}.service" 2>/dev/null || true
@@ -211,6 +211,14 @@ nuclear_cleanup() {
             systemctl disable "${service}.service" 2>/dev/null || true
             systemctl mask "$service" 2>/dev/null || true
         done
+        
+        # FORCE STOP OLD SERVICE NAMES THAT MAY BE CACHED
+        systemctl stop statistics-server.service 2>/dev/null || true
+        systemctl stop statistics-client.service 2>/dev/null || true
+        systemctl disable statistics-server.service 2>/dev/null || true
+        systemctl disable statistics-client.service 2>/dev/null || true
+        systemctl mask statistics-server.service 2>/dev/null || true
+        systemctl mask statistics-client.service 2>/dev/null || true
         
         # FORCE reload to flush any cached service definitions
         systemctl daemon-reload 2>/dev/null || true
@@ -239,6 +247,10 @@ nuclear_cleanup() {
         for service in "${services[@]}"; do
             systemctl unmask "$service" 2>/dev/null || true
         done
+        
+        # UNMASK OLD SERVICE NAMES TOO
+        systemctl unmask statistics-server.service 2>/dev/null || true
+        systemctl unmask statistics-client.service 2>/dev/null || true
         
         # Final reload to ensure everything is cleared
         systemctl daemon-reload 2>/dev/null || true
@@ -909,7 +921,10 @@ main() {
     echo "  • CLI Tool: statistics"
     echo "  • Start server: systemctl start vaultscope-statistics-server"
     echo "  • Stop server: systemctl stop vaultscope-statistics-server"
-    echo "  • View logs: journalctl -u vaultscope-statistics-server -f"
+    echo "  • Start client: systemctl start vaultscope-statistics-client"
+    echo "  • Stop client: systemctl stop vaultscope-statistics-client"
+    echo "  • View server logs: journalctl -u vaultscope-statistics-server -f"
+    echo "  • View client logs: journalctl -u vaultscope-statistics-client -f"
     echo ""
     
     # Save installation info
