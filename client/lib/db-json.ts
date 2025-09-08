@@ -66,12 +66,20 @@ function getDb(createIfNotExists: boolean = true): Database {
       const parsedData = JSON.parse(data);
       
       // Validate and migrate database structure
+      const defaultCategories = [
+        { id: 1, name: 'Production', color: '#22c55e', icon: 'server', createdAt: new Date().toISOString() },
+        { id: 2, name: 'Development', color: '#3b82f6', icon: 'code', createdAt: new Date().toISOString() },
+        { id: 3, name: 'Testing', color: '#f59e0b', icon: 'flask', createdAt: new Date().toISOString() },
+        { id: 4, name: 'Backup', color: '#8b5cf6', icon: 'database', createdAt: new Date().toISOString() },
+        { id: 5, name: 'Monitoring', color: '#ef4444', icon: 'activity', createdAt: new Date().toISOString() }
+      ];
+      
       const db: Database = {
         users: parsedData.users || [],
         nodes: parsedData.nodes || [],
-        categories: parsedData.categories || [
-          { id: 1, name: 'default', color: '#ffffff', icon: 'folder', createdAt: new Date().toISOString() }
-        ],
+        categories: parsedData.categories && parsedData.categories.length > 0 
+          ? parsedData.categories 
+          : defaultCategories,
         roles: parsedData.roles || DEFAULT_ROLES
       };
       
@@ -92,7 +100,11 @@ function getDb(createIfNotExists: boolean = true): Database {
     users: [],
     nodes: [],
     categories: [
-      { id: 1, name: 'default', color: '#ffffff', icon: 'folder', createdAt: new Date().toISOString() }
+      { id: 1, name: 'Production', color: '#22c55e', icon: 'server', createdAt: new Date().toISOString() },
+      { id: 2, name: 'Development', color: '#3b82f6', icon: 'code', createdAt: new Date().toISOString() },
+      { id: 3, name: 'Testing', color: '#f59e0b', icon: 'flask', createdAt: new Date().toISOString() },
+      { id: 4, name: 'Backup', color: '#8b5cf6', icon: 'database', createdAt: new Date().toISOString() },
+      { id: 5, name: 'Monitoring', color: '#ef4444', icon: 'activity', createdAt: new Date().toISOString() }
     ],
     roles: DEFAULT_ROLES
   };
