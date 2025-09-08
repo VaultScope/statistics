@@ -522,9 +522,9 @@ check_existing_installation() {
     [ -f "$INSTALL_DIR/.env" ] && { found=true; found_items="${found_items}• Environment file: $INSTALL_DIR/.env\n"; }
     [ -f "/etc/vaultscope-statistics/env" ] && { found=true; found_items="${found_items}• Environment config: /etc/vaultscope-statistics/env\n"; }
     
-    # Check for logs
-    ls /var/log/vaultscope* 2>/dev/null && { found=true; found_items="${found_items}• Log files in /var/log/\n"; }
-    ls /var/log/statistics* 2>/dev/null && { found=true; found_items="${found_items}• Log files in /var/log/\n"; }
+    # Check for logs (only check for directories, not individual log files)
+    [ -d "/var/log/vaultscope-statistics" ] && { found=true; found_items="${found_items}• Log directory: /var/log/vaultscope-statistics\n"; }
+    [ -d "/var/log/statistics" ] && { found=true; found_items="${found_items}• Log directory: /var/log/statistics\n"; }
     
     # Check for services
     if [ "$SERVICE_MANAGER" = "systemd" ]; then

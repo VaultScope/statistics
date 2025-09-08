@@ -53,7 +53,7 @@ export interface Category {
   createdAt: string;
 }
 
-function getDb(): Database {
+function getDb(createIfNotExists: boolean = true): Database {
   try {
     if (fs.existsSync(dbPath)) {
       const data = fs.readFileSync(dbPath, 'utf-8');
@@ -77,7 +77,9 @@ function getDb(): Database {
       return db;
     }
   } catch (error) {
-    console.log('Creating new database...');
+    if (createIfNotExists) {
+      console.log('Creating new database...');
+    }
   }
   
   const defaultDb: Database = {
@@ -89,7 +91,9 @@ function getDb(): Database {
     roles: DEFAULT_ROLES
   };
   
-  saveDb(defaultDb);
+  if (createIfNotExists) {
+    saveDb(defaultDb);
+  }
   return defaultDb;
 }
 
@@ -98,8 +102,18 @@ function saveDb(db: Database): void {
 }
 
 export const userExists = (): boolean => {
-  const db = getDb();
-  return db.users.length > 0;
+  try {
+    // Check if database file even exists first
+    if (!fs.existsSync(dbPath)) {
+      return false;
+    }
+    // Don't create database file when just checking
+    const db = getDb(false);
+    return db.users && db.users.length > 0;
+  } catch (error) {
+    console.error('Error checking if user exists:', error);
+    return false;
+  }
 };
 
 export const createUser = async (
