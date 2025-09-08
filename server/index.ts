@@ -10,6 +10,8 @@ import listKeys from "./functions/keys/manageKey";
 import { updateApiKeyPermissions, getApiKey } from "./functions/keys/updateKey";
 import Permissions from "./types/api/keys/permissions";
 import { getApiLogs, getApiKeyStats, clearApiLogs } from "./functions/logs/apiLogger";
+import alertsRouter from "./routes/alerts";
+import alertEngine from "./services/alertEngine";
 
 const app = express();
 const port = 4000;
@@ -54,6 +56,9 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());
 app.use(limiter);
+
+// Mount alerts router
+app.use('/api', alertsRouter);
 
 app.use((req: Request, res: Response, next) => {
     const start = Date.now();
@@ -677,4 +682,8 @@ app.listen(port, () => {
     console.log(`${colors.bgGreen}${colors.bright} SERVER STARTED ${colors.reset}`);
     console.log(`${colors.cyan}[SERVER]${colors.reset} Running at ${colors.bright}http://localhost:${port}${colors.reset}`);
     console.log(`${colors.yellow}[INFO]${colors.reset} Trust proxy: loopback | CORS: enabled | Rate limiting: active`);
+    
+    // Start the alert engine
+    alertEngine.start();
+    console.log(`${colors.green}[ALERTS]${colors.reset} Alert engine started - monitoring active`);
 });
