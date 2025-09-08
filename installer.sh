@@ -289,17 +289,30 @@ detect_existing_installation() {
 cleanup_complete_installation() {
     print_section "Removing ALL Existing Installations"
     
-    # Stop and remove ALL possible services
-    print_progress "Stopping ALL services"
+    # Stop and remove ALL possible services - MORE AGGRESSIVE
+    print_progress "Stopping and removing ALL services"
     for service in statistics-server statistics-client vaultscope-server vaultscope-client vaultscope-statistics-server vaultscope-statistics-client; do
         systemctl stop $service 2>/dev/null || true
         systemctl disable $service 2>/dev/null || true
+        systemctl mask $service 2>/dev/null || true
     done
+    
+    # Remove ALL service files from ALL locations
     rm -f /etc/systemd/system/statistics-*.service
     rm -f /etc/systemd/system/vaultscope-*.service
     rm -f /lib/systemd/system/statistics-*.service
     rm -f /lib/systemd/system/vaultscope-*.service
+    rm -f /usr/lib/systemd/system/statistics-*.service
+    rm -f /usr/lib/systemd/system/vaultscope-*.service
+    
+    # Force systemd to forget about these services completely
     systemctl daemon-reload 2>/dev/null || true
+    systemctl reset-failed 2>/dev/null || true
+    
+    # Unmask services after cleanup
+    for service in statistics-server statistics-client; do
+        systemctl unmask $service 2>/dev/null || true
+    done
     print_done
     
     # Remove ALL Nginx configurations
@@ -696,10 +709,19 @@ setup_application() {
         chown -R www-data:www-data "$INSTALL_DIR" 2>/dev/null || true
     fi
     
-    # Copy uninstaller if exists
-    if [ -f "$INSTALL_DIR/uninstaller.sh" ]; then
+    # Install uninstaller
+    if [ -f "$(dirname "$0")/uninstaller.sh" ]; then
+        cp "$(dirname "$0")/uninstaller.sh" /usr/local/bin/statistics-uninstall
+    elif [ -f "$INSTALL_DIR/uninstaller.sh" ]; then
         cp "$INSTALL_DIR/uninstaller.sh" /usr/local/bin/statistics-uninstall
+    else
+        # Create uninstaller from embedded script
+        create_uninstaller
+    fi
+    
+    if [ -f /usr/local/bin/statistics-uninstall ]; then
         chmod +x /usr/local/bin/statistics-uninstall
+        print_success "Uninstaller created at /usr/local/bin/statistics-uninstall"
     fi
     
     print_success "Application setup complete"
@@ -859,6 +881,57 @@ switch(command) {
 EOF
     
     chmod +x "$INSTALL_DIR/cli.js"
+}
+
+# ============================================================================
+# UNINSTALLER
+# ============================================================================
+
+create_uninstaller() {
+    cat > /usr/local/bin/statistics-uninstall << 'UNINSTALLER_EOF'
+#!/bin/bash
+set -e
+
+# Quick uninstaller for VaultScope Statistics
+echo "VaultScope Statistics Uninstaller"
+echo "================================="
+echo ""
+read -p "Remove VaultScope Statistics completely? (yes/no): " confirm
+[ "$confirm" != "yes" ] && exit 0
+
+echo "Removing services..."
+for service in statistics-server statistics-client vaultscope-server vaultscope-client; do
+    systemctl stop $service 2>/dev/null || true
+    systemctl disable $service 2>/dev/null || true
+    systemctl mask $service 2>/dev/null || true
+done
+
+rm -f /etc/systemd/system/statistics-*.service
+rm -f /etc/systemd/system/vaultscope-*.service
+rm -f /lib/systemd/system/statistics-*.service
+rm -f /lib/systemd/system/vaultscope-*.service
+systemctl daemon-reload 2>/dev/null || true
+systemctl reset-failed 2>/dev/null || true
+
+echo "Removing files..."
+rm -rf /var/www/vaultscope-statistics
+rm -rf /var/www/statistics
+rm -rf /etc/vaultscope-statistics
+rm -rf /etc/vaultscope
+rm -rf /var/log/vaultscope-statistics
+rm -f /usr/local/bin/statistics
+rm -f /usr/local/bin/statistics-uninstall
+
+echo "Removing web server configs..."
+rm -f /etc/nginx/sites-*/statistics-*
+rm -f /etc/nginx/sites-*/vaultscope-*
+rm -f /etc/apache2/sites-*/statistics-*
+rm -f /etc/apache2/sites-*/vaultscope-*
+
+echo ""
+echo "✓ VaultScope Statistics has been uninstalled!"
+UNINSTALLER_EOF
+    chmod +x /usr/local/bin/statistics-uninstall
 }
 
 # ============================================================================
