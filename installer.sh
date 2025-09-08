@@ -342,6 +342,11 @@ cleanup_complete_installation() {
     rm -f /usr/local/bin/statistics-uninstall
     print_done
     
+    # Clean old log files but keep directory for current install
+    if [ -d "$LOG_DIR" ]; then
+        find "$LOG_DIR" -type f -name "*.log" -delete 2>/dev/null || true
+    fi
+    
     print_success "Previous installation completely removed"
 }
 
@@ -756,6 +761,69 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Client running on port ${PORT}`);
 });
 EOF
+
+    # Create a minimal CLI tool
+    cat > "$INSTALL_DIR/cli.js" << 'EOF'
+#!/usr/bin/env node
+
+const { execSync } = require('child_process');
+const args = process.argv.slice(2);
+const command = args[0];
+
+console.log('VaultScope Statistics CLI - Minimal Mode\n');
+
+switch(command) {
+    case 'status':
+        try {
+            console.log('Server Status:');
+            execSync('systemctl is-active statistics-server', { stdio: 'inherit' });
+            console.log('\nClient Status:');
+            execSync('systemctl is-active statistics-client', { stdio: 'inherit' });
+        } catch(e) {
+            console.log('Services not configured or not running');
+        }
+        break;
+    case 'start':
+        console.log('Starting services...');
+        try {
+            execSync('sudo systemctl start statistics-server statistics-client', { stdio: 'inherit' });
+            console.log('Services started');
+        } catch(e) {
+            console.log('Failed to start services');
+        }
+        break;
+    case 'stop':
+        console.log('Stopping services...');
+        try {
+            execSync('sudo systemctl stop statistics-server statistics-client', { stdio: 'inherit' });
+            console.log('Services stopped');
+        } catch(e) {
+            console.log('Failed to stop services');
+        }
+        break;
+    case 'restart':
+        console.log('Restarting services...');
+        try {
+            execSync('sudo systemctl restart statistics-server statistics-client', { stdio: 'inherit' });
+            console.log('Services restarted');
+        } catch(e) {
+            console.log('Failed to restart services');
+        }
+        break;
+    case 'help':
+    default:
+        console.log('Usage: statistics <command>');
+        console.log('\nCommands:');
+        console.log('  status   - Show service status');
+        console.log('  start    - Start all services');
+        console.log('  stop     - Stop all services');
+        console.log('  restart  - Restart all services');
+        console.log('  help     - Show this help');
+        break;
+}
+EOF
+    
+    chmod +x "$INSTALL_DIR/cli.js"
 }
 
 # ============================================================================
@@ -1165,6 +1233,109 @@ main() {
     
     log "Installation completed successfully"
 }
+
+# ============================================================================
+# DIAGNOSTIC TOOL
+# ============================================================================
+
+run_diagnostics() {
+    print_header
+    print_section "System Diagnostics"
+    
+    local issues_found=false
+    
+    # Check Node.js
+    print_progress "Checking Node.js"
+    if command -v node > /dev/null 2>&1; then
+        print_done
+        print_success "Node.js $(node --version) installed"
+    else
+        print_done
+        print_error "Node.js not installed"
+        issues_found=true
+    fi
+    
+    # Check services
+    if [ -f /etc/systemd/system/statistics-server.service ]; then
+        print_progress "Checking server service"
+        if systemctl is-active --quiet statistics-server; then
+            print_done
+            print_success "Server service is running"
+            
+            # Test API
+            if curl -s http://localhost:4000/health 2>/dev/null | grep -q "healthy"; then
+                print_success "Server API responding on port 4000"
+            else
+                print_warning "Server running but API not responding"
+                issues_found=true
+            fi
+        else
+            print_done
+            print_error "Server service not running"
+            echo "  Last errors:"
+            journalctl -u statistics-server -n 3 --no-pager 2>/dev/null | tail -3
+            issues_found=true
+        fi
+    fi
+    
+    if [ -f /etc/systemd/system/statistics-client.service ]; then
+        print_progress "Checking client service"
+        if systemctl is-active --quiet statistics-client; then
+            print_done
+            print_success "Client service is running"
+            
+            # Test client
+            if curl -s http://localhost:3000/ 2>/dev/null | grep -q "VaultScope"; then
+                print_success "Client responding on port 3000"
+            else
+                print_warning "Client running but not responding"
+                issues_found=true
+            fi
+        else
+            print_done
+            print_error "Client service not running"
+            echo "  Last errors:"
+            journalctl -u statistics-client -n 3 --no-pager 2>/dev/null | tail -3
+            issues_found=true
+        fi
+    fi
+    
+    # Check ports
+    echo ""
+    echo "${WHITE}Port Status:${NC}"
+    netstat -tln 2>/dev/null | grep -E ":(3000|4000|80|443) " || echo "No services listening"
+    
+    # Check files
+    echo ""
+    echo "${WHITE}Installation Files:${NC}"
+    if [ -d "$INSTALL_DIR" ]; then
+        echo "  Install dir: $INSTALL_DIR"
+        [ -f "$INSTALL_DIR/server.js" ] && echo "    ✓ server.js exists" || echo "    ✗ server.js missing"
+        [ -f "$INSTALL_DIR/package.json" ] && echo "    ✓ package.json exists" || echo "    ✗ package.json missing"
+        [ -d "$INSTALL_DIR/node_modules" ] && echo "    ✓ node_modules exists" || echo "    ✗ node_modules missing"
+    else
+        echo "  Install directory not found!"
+    fi
+    
+    if [ "$issues_found" = true ]; then
+        echo ""
+        print_warning "Issues detected. Recommendations:"
+        echo "  • Restart services: systemctl restart statistics-server statistics-client"
+        echo "  • Check logs: journalctl -u statistics-server -f"
+        echo "  • Re-run installer: sudo bash installer.sh"
+    else
+        echo ""
+        print_success "All systems operational!"
+    fi
+}
+
+# Check if running with --diagnose flag
+if [ "$1" = "--diagnose" ] || [ "$1" = "-d" ]; then
+    setup_colors
+    check_root
+    run_diagnostics
+    exit 0
+fi
 
 # Run main
 main "$@"
