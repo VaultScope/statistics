@@ -560,9 +560,12 @@ install_application() {
     
     # Build client if exists
     if [ -d "client" ] && [ -f "client/package.json" ]; then
-        print_progress "Building client application"
+        print_progress "Installing client dependencies"
         cd client
-        npm install --silent >/dev/null 2>&1 || true
+        npm install --silent >/dev/null 2>&1 || npm install >/dev/null 2>&1 || true
+        print_done
+        
+        print_progress "Building client application"
         npm run build >/dev/null 2>&1 || npx next build >/dev/null 2>&1 || true
         cd ..
         print_done
@@ -654,6 +657,19 @@ EOF
     # Create client service if Next.js exists
     if [ -d "$INSTALL_DIR/client/.next" ]; then
         print_progress "Creating client service"
+        
+        # Determine correct next.js path
+        local next_cmd=""
+        if [ -f "$INSTALL_DIR/client/node_modules/.bin/next" ]; then
+            next_cmd="$node_path $INSTALL_DIR/client/node_modules/.bin/next start"
+        elif [ -f "$INSTALL_DIR/node_modules/.bin/next" ]; then
+            next_cmd="$node_path $INSTALL_DIR/node_modules/.bin/next start"
+        elif command -v npx &>/dev/null; then
+            next_cmd="cd $INSTALL_DIR/client && npx next start"
+        else
+            next_cmd="cd $INSTALL_DIR/client && $node_path -e \"require('next/dist/bin/next') start\""
+        fi
+        
         cat > /etc/systemd/system/vaultscope-statistics-client.service << EOF
 [Unit]
 Description=VaultScope Statistics Client
@@ -665,7 +681,7 @@ User=www-data
 WorkingDirectory=$INSTALL_DIR/client
 Environment="NODE_ENV=production"
 Environment="PORT=4001"
-ExecStart=$node_path $INSTALL_DIR/client/node_modules/.bin/next start
+ExecStart=/bin/bash -c "$next_cmd"
 Restart=always
 RestartSec=10
 
