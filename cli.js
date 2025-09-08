@@ -110,7 +110,7 @@ class VaultScopeCLI {
         console.log(`  Type: ${this.config.serviceManager}`);
         
         if (this.config.serviceManager === 'systemd') {
-            console.log('  Services: vaultscope-server.service, vaultscope-client.service');
+            console.log('  Services: vaultscope-statistics-server.service, vaultscope-statistics-client.service');
         } else if (this.config.serviceManager === 'pm2') {
             console.log('  Processes: vaultscope-server, vaultscope-client');
         }
@@ -121,16 +121,29 @@ class VaultScopeCLI {
     showStatus() {
         console.log('\n🔄 Service Status:\n');
         
+        // Add URLs for when config is not available
+        const defaultUrls = {
+            server: 'http://localhost:4000',
+            client: 'http://localhost:4001'
+        };
+        
         try {
             // Always try to check systemd services, even without config
             if (!this.config || this.config?.serviceManager === 'systemd') {
                 // Check both services if no config or check configured components
+                // Try new service names first, then fall back to old ones
                 if (!this.config || this.config.components.includes('server')) {
-                    const serverStatus = this.getSystemdStatus('statistics-server');
+                    let serverStatus = this.getSystemdStatus('vaultscope-statistics-server');
+                    if (serverStatus === '❓ Unknown') {
+                        serverStatus = this.getSystemdStatus('statistics-server');
+                    }
                     console.log(`  Server: ${serverStatus}`);
                 }
                 if (!this.config || this.config.components.includes('client')) {
-                    const clientStatus = this.getSystemdStatus('statistics-client');
+                    let clientStatus = this.getSystemdStatus('vaultscope-statistics-client');
+                    if (clientStatus === '❓ Unknown') {
+                        clientStatus = this.getSystemdStatus('statistics-client');
+                    }
                     console.log(`  Client: ${clientStatus}`);
                 }
             } else if (this.config?.serviceManager === 'pm2') {
@@ -151,9 +164,13 @@ class VaultScopeCLI {
             console.log('\n🔗 Access URLs:');
             if (this.config?.server) {
                 console.log(`  Server API: ${this.config.server.url}`);
+            } else {
+                console.log(`  Server API: ${defaultUrls.server}`);
             }
             if (this.config?.client) {
                 console.log(`  Client Dashboard: ${this.config.client.url}`);
+            } else {
+                console.log(`  Client Dashboard: ${defaultUrls.client}`);
             }
         } catch (error) {
             console.log('  Unable to determine service status');
@@ -182,9 +199,14 @@ class VaultScopeCLI {
             }
             
             try {
-                // Default to systemd
+                // Default to systemd with new service names
                 if (!this.config || this.config.serviceManager === 'systemd') {
-                    execSync(`sudo systemctl start statistics-${comp}`, { stdio: 'inherit' });
+                    try {
+                        execSync(`sudo systemctl start vaultscope-statistics-${comp}`, { stdio: 'inherit' });
+                    } catch {
+                        // Fallback to old service names
+                        execSync(`sudo systemctl start statistics-${comp}`, { stdio: 'inherit' });
+                    }
                 } else if (this.config.serviceManager === 'pm2') {
                     execSync(`pm2 start statistics-${comp}`, { stdio: 'inherit' });
                 }
@@ -208,9 +230,14 @@ class VaultScopeCLI {
             }
             
             try {
-                // Default to systemd
+                // Default to systemd with new service names
                 if (!this.config || this.config.serviceManager === 'systemd') {
-                    execSync(`sudo systemctl stop statistics-${comp}`, { stdio: 'inherit' });
+                    try {
+                        execSync(`sudo systemctl stop vaultscope-statistics-${comp}`, { stdio: 'inherit' });
+                    } catch {
+                        // Fallback to old service names
+                        execSync(`sudo systemctl stop statistics-${comp}`, { stdio: 'inherit' });
+                    }
                 } else if (this.config.serviceManager === 'pm2') {
                     execSync(`pm2 stop statistics-${comp}`, { stdio: 'inherit' });
                 }
@@ -234,9 +261,14 @@ class VaultScopeCLI {
             }
             
             try {
-                // Default to systemd
+                // Default to systemd with new service names
                 if (!this.config || this.config.serviceManager === 'systemd') {
-                    execSync(`sudo systemctl restart statistics-${comp}`, { stdio: 'inherit' });
+                    try {
+                        execSync(`sudo systemctl restart vaultscope-statistics-${comp}`, { stdio: 'inherit' });
+                    } catch {
+                        // Fallback to old service names
+                        execSync(`sudo systemctl restart statistics-${comp}`, { stdio: 'inherit' });
+                    }
                 } else if (this.config.serviceManager === 'pm2') {
                     execSync(`pm2 restart statistics-${comp}`, { stdio: 'inherit' });
                 }
