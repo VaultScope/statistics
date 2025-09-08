@@ -1,213 +1,352 @@
 # VaultScope Statistics
 
 <div align="center">
-  
-  ![VaultScope Statistics](https://img.shields.io/badge/VaultScope-Statistics-blue?style=for-the-badge)
-  ![Version](https://img.shields.io/badge/version-2.0.0-green?style=for-the-badge)
-  ![License](https://img.shields.io/badge/license-MIT-purple?style=for-the-badge)
-  
-  **Enterprise-grade server monitoring and statistics platform**
-  
-  [Features](#-features) • [Installation](#-installation) • [Documentation](#-api-documentation) • [Contributing](#-contributing)
-  
+
+![Version](https://img.shields.io/badge/version-3.0.0-blue.svg?style=for-the-badge)
+![License](https://img.shields.io/badge/license-ISC-green.svg?style=for-the-badge)
+![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg?style=for-the-badge)
+![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg?style=for-the-badge)
+
+**Enterprise-grade system monitoring and statistics platform with real-time analytics**
+
+[🚀 Quick Start](#-quick-installation) • [✨ Features](#-features) • [📖 Documentation](#-usage) • [🔌 API](#-api-documentation) • [🤝 Contributing](#-contributing)
+
 </div>
 
 ---
 
-## 🚀 Overview
+## 📋 Table of Contents
 
-VaultScope Statistics is a powerful, real-time server monitoring solution that provides comprehensive insights into your infrastructure. Built with modern technologies and designed for scalability, it offers both standalone server monitoring and centralized multi-node management through an intuitive web dashboard.
+- [Overview](#-overview)
+- [Features](#-features)
+- [Architecture](#-architecture)
+- [Installation](#-installation)
+- [Configuration](#-configuration)
+- [Usage](#-usage)
+- [API Documentation](#-api-documentation)
+- [CLI Tools](#-cli-tools)
+- [Troubleshooting](#-troubleshooting)
+- [Development](#-development)
+- [License](#-license)
 
-### Key Highlights
+## 🌟 Overview
 
-- **Real-time Monitoring** - Live updates every 5 seconds for critical metrics
+VaultScope Statistics is a comprehensive system monitoring solution that provides real-time insights into your infrastructure. Built with TypeScript, Express.js, and Next.js, it offers both a robust REST API server and an intuitive web dashboard for visualization and management.
+
+### Why VaultScope Statistics?
+
+- **Real-Time Monitoring** - Live updates every 5 seconds for critical metrics
 - **Multi-Node Support** - Monitor unlimited servers from a single dashboard
-- **Role-Based Access** - Granular permission system with custom roles
-- **API-First Design** - RESTful API with authentication and rate limiting
-- **Cross-Platform** - Works on Windows, Linux, and macOS
-- **Easy Deployment** - One-click installers with automatic service configuration
+- **Security First** - API key authentication with role-based permissions
+- **Easy Deployment** - One-command installation with automatic configuration
+- **Cross-Platform** - Works seamlessly on Linux, macOS, and Windows
+- **Open Source** - Fully transparent and customizable
 
 ## ✨ Features
 
-### System Monitoring
-- **CPU Metrics** - Usage, cores, speed, temperature, load averages
-- **Memory Analysis** - RAM usage, swap, detailed memory layout
-- **Network Traffic** - Real-time bandwidth monitoring, packet analysis
+### 📊 System Monitoring
+- **CPU Analytics** - Usage, cores, speed, temperature, load averages
+- **Memory Tracking** - RAM/swap usage, detailed memory layout
 - **Disk I/O** - Storage usage, read/write speeds, device information
-- **Process Management** - Live process list with CPU/memory usage
-- **Hardware Info** - Complete system specifications and components
+- **Network Analysis** - Bandwidth monitoring, packet sniffing (requires root)
+- **Process Management** - Live process list with resource usage
+- **Hardware Detection** - Complete system specifications
 
-### User Management
-- **Multiple Users** - Create and manage user accounts
+### 🔐 Security & Access Control
+- **API Key Authentication** - Secure token-based access
+- **Role-Based Permissions** - Granular access control system
+- **Audit Logging** - Complete API access and activity logs
+- **Rate Limiting** - Protection against API abuse
+- **CORS Support** - Configurable cross-origin policies
+
+### 🎨 Web Dashboard
+- **Modern UI** - Clean, responsive Next.js interface
+- **Real-Time Charts** - Interactive graphs using Recharts
+- **Dark Mode** - Eye-friendly dark theme support
+- **Multi-Node View** - Manage multiple servers from one place
+- **User Management** - Create and manage user accounts
 - **Role System** - Admin, Operator, Viewer, and custom roles
-- **Permissions** - 20+ granular permissions for fine-grained control
-- **Profile Customization** - Personal settings and password management
-- **Activity Logging** - Track user actions and API usage
 
-### API Features
-- **Authentication** - Secure API key-based authentication
-- **Rate Limiting** - Configurable limits per API key
-- **Usage Analytics** - Detailed API request logging and statistics
-- **Multiple Keys** - Support for multiple API keys per server
-- **CORS Support** - Cross-origin resource sharing enabled
+### 🛠️ Management Tools
+- **CLI Interface** - Powerful command-line tools
+- **Auto-Installation** - Intelligent setup script with OS detection
+- **Service Management** - Systemd/launchd integration
+- **Reverse Proxy** - Built-in support for Nginx, Apache, Cloudflare
+- **SSL/TLS** - Automatic Let's Encrypt certificate setup
+- **Diagnostics** - Built-in troubleshooting tools
 
-### Interface
-- **Modern Dashboard** - Clean, responsive web interface
-- **Dark Mode** - Eye-friendly dark theme
-- **Real-time Charts** - Interactive graphs for all metrics
-- **Search & Filter** - Quick access to specific data
-- **Export Options** - Download data in various formats
+## 🏗️ Architecture
 
-## 📋 Requirements
-
-### System Requirements
-
-**Client (Web Dashboard)**:
-- Node.js 18.0 or higher
-- 2GB RAM minimum
-- 1GB disk space
-
-**Server (Monitoring Agent)**:
-- Node.js 18.0 or higher
-- 512MB RAM minimum
-- 500MB disk space
-- Windows 10/11, Ubuntu 20.04+, macOS 12+
-
-### Network Requirements
-- Client Port: 3000 (configurable)
-- Server Port: 4000 (configurable)
-- HTTPS recommended for production
-
----
-
-## 🛠 Installation
-
-### Quick Install (Recommended)
-
-#### Windows
-```powershell
-# Download installer
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/VaultScope/statistics/main/installer.ps1" -OutFile "installer.ps1"
-
-# Run as Administrator
-.\installer.ps1
 ```
+vaultscope-statistics/
+├── server/                    # Backend API Server
+│   ├── index.ts              # Express server entry point
+│   ├── functions/            # Core functionality modules
+│   │   ├── keys/            # API key management
+│   │   ├── logs/            # Logging and monitoring
+│   │   ├── stats/           # Statistics collection
+│   │   │   ├── power/      # System power controls
+│   │   │   ├── speedtest/  # Network speed testing
+│   │   │   └── utils/      # Utility functions
+│   │       ├── process/    # Process management
+│   │       └── system/     # System information
+│   ├── cli/                 # CLI tool implementations
+│   └── types/               # TypeScript type definitions
+│
+├── client/                   # Frontend Web Application
+│   ├── app/                 # Next.js 15 app directory
+│   │   ├── api/            # API route handlers
+│   │   │   ├── auth/      # Authentication endpoints
+│   │   │   ├── nodes/     # Node management
+│   │   │   ├── users/     # User management
+│   │   │   └── roles/     # Role management
+│   │   ├── components/     # React components
+│   │   └── (dashboard)/   # Dashboard pages
+│   ├── lib/                # Utility libraries
+│   └── public/            # Static assets
+│
+├── installer.sh            # Linux/macOS installer
+├── uninstaller.sh         # Clean uninstallation script
+├── diagnose.sh           # Diagnostic tool
+├── cli.js                # CLI entry point
+├── package.json          # Project dependencies
+├── tsconfig.json         # TypeScript configuration
+└── CLAUDE.md            # AI assistance documentation
+```
+
+## 🚀 Installation
+
+### 🎯 Quick Installation (Recommended)
 
 #### Linux/macOS
+
 ```bash
-# Download installer
-curl -O https://raw.githubusercontent.com/VaultScope/statistics/main/installer.sh
+# Download and run the installer
+curl -fsSL https://raw.githubusercontent.com/vaultscope/statistics/main/installer.sh -o installer.sh
+sudo bash installer.sh
 
-# Make executable
-chmod +x installer.sh
-
-# Run installer
-sudo ./installer.sh  # Linux
-./installer.sh       # macOS
+# The installer will:
+# ✅ Detect your operating system
+# ✅ Check for existing installations
+# ✅ Install Node.js if needed
+# ✅ Set up the application
+# ✅ Configure system services
+# ✅ Set up reverse proxy (optional)
+# ✅ Configure SSL certificates (optional)
 ```
 
-The installer will guide you through:
-1. Choosing components (Client/Server/Both)
-2. Setting up reverse proxy (Optional)
-3. Configuring auto-start services
-4. Generating API keys
+#### Installation Options
 
-### Manual Installation
+During installation, you'll be prompted to:
 
-#### Server Setup
+1. **Choose Components**
+   - Server only (API backend)
+   - Client only (Web dashboard)
+   - Both (Recommended)
+
+2. **Configure Reverse Proxy** (Optional)
+   - Nginx (Recommended)
+   - Apache
+   - Cloudflare Tunnel
+   - None (direct access)
+
+3. **Set Up Domains** (If using reverse proxy)
+   - API domain (e.g., api.yourdomain.com)
+   - Client domain (e.g., app.yourdomain.com)
+
+4. **Configure SSL** (If using Nginx/Apache)
+   - Automatic Let's Encrypt setup
+   - Auto-renewal configuration
+
+### 📦 Manual Installation
+
+#### Prerequisites
+
+- Node.js 18.0 or higher
+- npm or yarn
+- Git
+- Linux/macOS/Windows
+- Root/Administrator access (for system monitoring features)
+
+#### Step-by-Step Guide
+
+1. **Clone the repository**
 ```bash
-# Clone repository
-git clone https://github.com/VaultScope/statistics.git
-cd statistics/server
+git clone https://github.com/vaultscope/statistics.git
+cd statistics
+```
 
-# Install dependencies
+2. **Install dependencies**
+```bash
 npm install
+```
 
-# Build
+3. **Build the project**
+```bash
+# Build TypeScript files
 npm run build
 
-# Configure environment
-cp .env.example .env
-# Edit .env with your settings
-
-# Start server
-npm start
+# Build Next.js client
+npm run client:build
 ```
 
-#### Client Setup
+4. **Configure environment**
 ```bash
-# Navigate to client directory
-cd statistics/client
-
-# Install dependencies
-npm install
-
-# Build
-npm run build
-
-# Configure environment
+# Copy example configurations
 cp .env.example .env
-# Edit .env with your settings
+cp client/.env.example client/.env
 
-# Start client
-npm start
+# Edit configuration files
+nano .env
+nano client/.env
 ```
 
-### Docker Installation
+5. **Start services**
+```bash
+# Start server (API)
+npm run server
+
+# In another terminal, start client (Web UI)
+npm run client
+```
+
+6. **Access the application**
+   - API Server: http://localhost:4000
+   - Web Dashboard: http://localhost:3000
+
+### 🐳 Docker Installation
 
 ```bash
-# Using Docker Compose
+# Using Docker Compose (Recommended)
 docker-compose up -d
 
-# Or individual containers
-docker run -d -p 4000:4000 --name vaultscope-server vaultscope/statistics-server
-docker run -d -p 3000:3000 --name vaultscope-client vaultscope/statistics-client
+# Or using individual containers
+docker run -d -p 4000:4000 --name vaultscope-server vaultscope/statistics:server
+docker run -d -p 3000:3000 --name vaultscope-client vaultscope/statistics:client
+
+# View logs
+docker logs vaultscope-server
+docker logs vaultscope-client
 ```
 
-## 🔧 Configuration
+### ☁️ Cloud Deployment
 
-### Server Configuration (.env)
+<details>
+<summary><b>Deploy to AWS</b></summary>
+
+```bash
+# Using AWS CLI
+aws ec2 run-instances \
+  --image-id ami-0c55b159cbfafe1f0 \
+  --instance-type t3.medium \
+  --key-name your-key \
+  --user-data file://installer.sh
+```
+</details>
+
+<details>
+<summary><b>Deploy to DigitalOcean</b></summary>
+
+```bash
+# Using doctl
+doctl compute droplet create vaultscope \
+  --image ubuntu-22-04-x64 \
+  --size s-2vcpu-4gb \
+  --region nyc1 \
+  --user-data-file installer.sh
+```
+</details>
+
+## ⚙️ Configuration
+
+### Environment Variables
+
+#### Server Configuration (.env)
 ```env
-# Server Port
+# Server Settings
 PORT=4000
+NODE_ENV=production
 
-# API Authentication
-API_KEY=your-secure-api-key-here
+# Security
+API_KEY_SECRET=your-secret-key-here
+SESSION_SECRET=your-session-secret
+
+# Database
+DB_PATH=./data/statistics.db
 
 # Rate Limiting
 RATE_LIMIT_WINDOW=60000
 RATE_LIMIT_MAX=100
 
-# Environment
-NODE_ENV=production
-
-# Optional: Database
-DB_PATH=./database.json
+# Logging
+LOG_LEVEL=info
+LOG_DIR=/var/log/vaultscope-statistics
 ```
 
-### Client Configuration (.env)
+#### Client Configuration (client/.env)
 ```env
-# Client Port
-PORT=3000
+# Application
+NEXT_PUBLIC_APP_NAME=VaultScope Statistics
+NEXT_PUBLIC_APP_URL=http://localhost:3000
 
-# API Endpoint (if server is remote)
+# API Configuration
 NEXT_PUBLIC_API_URL=http://localhost:4000
 
-# Session Secret
-SESSION_SECRET=your-session-secret
-
-# Environment
-NODE_ENV=production
+# Features
+NEXT_PUBLIC_ENABLE_ANALYTICS=true
+NEXT_PUBLIC_ENABLE_DARK_MODE=true
 ```
 
-### Nginx Configuration (Optional)
+### Service Configuration
+
+#### Systemd (Linux)
+```bash
+# Manage services
+sudo systemctl start statistics-server
+sudo systemctl stop statistics-server
+sudo systemctl restart statistics-server
+sudo systemctl status statistics-server
+
+# Enable auto-start
+sudo systemctl enable statistics-server
+sudo systemctl enable statistics-client
+
+# View logs
+sudo journalctl -u statistics-server -f
+sudo journalctl -u statistics-client -f
+```
+
+#### Reverse Proxy Configuration
+
+<details>
+<summary><b>Nginx Configuration</b></summary>
+
 ```nginx
+# /etc/nginx/sites-available/statistics-api
 server {
     listen 80;
-    server_name stats.yourdomain.com;
-
+    server_name api.yourdomain.com;
+    
     location / {
-        proxy_pass http://localhost:3000;
+        proxy_pass http://127.0.0.1:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+# /etc/nginx/sites-available/statistics-client
+server {
+    listen 80;
+    server_name app.yourdomain.com;
+    
+    location / {
+        proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -216,413 +355,333 @@ server {
     }
 }
 ```
+</details>
 
-## 📖 Documentation
+## 📖 Usage
 
-### First Time Setup
+### 🌐 Web Dashboard
 
-1. **Access the Dashboard**
-   - Navigate to `http://localhost:3000`
-   - You'll be redirected to registration
+1. **First Time Setup**
+   - Navigate to http://localhost:3000
+   - Create your admin account (first user gets admin privileges)
+   - Configure your first node
 
-2. **Create Admin Account**
-   - Enter your details
-   - First user automatically gets admin privileges
-
-3. **Add Your First Node**
+2. **Adding Nodes**
    - Go to Settings → Nodes
    - Click "Add Node"
    - Enter server details and API key
+   - Test connection
 
-4. **Start Monitoring**
-   - Click on any node to view real-time stats
-   - Navigate between different metrics tabs
+3. **Monitoring**
+   - Click on any node to view real-time statistics
+   - Use tabs to switch between different metrics
+   - Export data using the export button
 
-### User Roles
+### 🔧 CLI Tools
 
-| Role | Description | Default Permissions |
-|------|-------------|-------------------|
-| **Admin** | Full system access | All permissions |
-| **Operator** | Manage nodes and monitoring | Nodes, monitoring, API keys |
-| **Viewer** | Read-only access | View nodes and monitoring |
-| **Custom** | User-defined | Configurable |
+#### API Key Management
 
-### Permission Categories
+```bash
+# Create API keys
+statistics apikey create "Production Server" --admin
+statistics apikey create "Monitoring Only" --viewStats
+statistics apikey create "Limited Access" --viewStats --viewApiKeys
 
-- **Nodes** - View, create, update, delete nodes
-- **Users** - Manage user accounts
-- **API Keys** - Manage API authentication
-- **Monitoring** - Access monitoring features
-- **System** - System configuration
+# List all keys
+statistics apikey list
 
----
+# Delete a key
+statistics apikey delete <uuid-or-key>
 
-# 🔐 Authentication & Security
+# Available permissions:
+# --admin              All permissions
+# --viewStats          View system statistics
+# --createApiKey       Create new API keys
+# --deleteApiKey       Delete API keys
+# --viewApiKeys        List all API keys
+# --usePowerCommands   System power control
+```
+
+#### System Information
+
+```bash
+# Display system info
+statistics sysinfo
+
+# Run speed test
+statistics speed
+
+# Monitor in real-time
+statistics monitor
+
+# Process management
+statistics process list
+statistics process kill <pid>
+```
+
+### 🔍 Diagnostics
+
+```bash
+# Run built-in diagnostics
+sudo bash installer.sh --diagnose
+
+# Or use standalone diagnostic tool
+sudo bash diagnose.sh
+
+# Manual checks
+systemctl status statistics-server
+systemctl status statistics-client
+tail -f /var/log/vaultscope-statistics/server-error.log
+```
+
+## 🔌 API Documentation
+
+### Authentication
+
+All API endpoints (except `/health`) require authentication:
+
+```bash
+# Header authentication (Recommended)
+curl -H "x-api-key: YOUR_API_KEY" http://localhost:4000/api/stats
+
+# Bearer token
+curl -H "Authorization: Bearer YOUR_API_KEY" http://localhost:4000/api/stats
+
+# Query parameter (Not recommended for production)
+curl "http://localhost:4000/api/stats?apiKey=YOUR_API_KEY"
+```
+
+### Core Endpoints
+
+#### System Statistics
+```http
+GET /api/stats
+```
 
 <details>
-<summary><b>Click to expand authentication details</b></summary>
+<summary>Response Example</summary>
 
-## Authentication
-All API endpoints (except `/health`) require authentication using API keys. Include your API key in requests using one of these methods:
-- **Header**: `x-api-key: YOUR_API_KEY`
-- **Bearer Token**: `Authorization: Bearer YOUR_API_KEY`
-- **Query Parameter**: `?apiKey=YOUR_API_KEY`
-
-## Permissions
-The API uses a permission-based system. Each API key has specific permissions:
-
-| Permission | Description |
-|------------|-------------|
-| `viewStats` | Access system statistics, speedtest, processes, and monitoring data |
-| `createApiKey` | Create new API keys |
-| `deleteApiKey` | Delete existing API keys |
-| `viewApiKeys` | List all API keys |
-| `usePowerCommands` | Execute system power commands (reboot/shutdown) |
-
-## Security Notes
-- Store API keys securely and never commit them to version control
-- Use environment variables for API keys in production
-- Regularly rotate API keys
-- Grant minimum necessary permissions to each key
-- The `usePowerCommands` permission is particularly sensitive - only grant to trusted keys
-- Network sniffer requires root/administrator privileges to capture packets
-- Network sniffer functionality depends on the `cap` native module being properly compiled for your system
-
-</details>
-
----
-
-# 🔑 API Key Management
-
-<details>
-<summary><b>Click to expand API key management</b></summary>
-
-## Via CLI Commands
-
-### Create an API Key
-```bash
-# Create a basic key with only viewStats permission
-npm run apikey create "My API Key"
-
-# Create an admin key with all permissions
-npm run apikey create "Admin Key" --admin
-
-# Create a key with specific permissions
-npm run apikey create "Custom Key" --viewStats --createApiKey --viewApiKeys
-
-# Available flags:
-# --admin              Grant all permissions
-# --viewStats          Grant viewStats permission (default: true)
-# --createApiKey       Grant createApiKey permission
-# --deleteApiKey       Grant deleteApiKey permission
-# --viewApiKeys        Grant viewApiKeys permission
-# --usePowerCommands   Grant usePowerCommands permission
-```
-
-### List API Keys
-```bash
-npm run apikey list
-```
-
-### Delete an API Key
-```bash
-# Delete by UUID
-npm run apikey delete <uuid>
-
-# Delete by key
-npm run apikey delete <api-key>
-```
-
-## Via API Endpoints
-
-### Create API Key
-**POST** `/api/keys`
-- **Required Permission**: `createApiKey`
-- **Body**:
 ```json
 {
-  "name": "Key Name",
-  "permissions": {
-    "viewStats": true,
-    "createApiKey": false,
-    "deleteApiKey": false,
-    "viewApiKeys": false,
-    "usePowerCommands": false
-  }
-}
-```
-- **Response**: Returns the created key with UUID and generated key string
-
-### List API Keys
-**GET** `/api/keys`
-- **Required Permission**: `viewApiKeys`
-- **Response**: Array of API keys (without the actual key strings)
-
-### Delete API Key
-**DELETE** `/api/keys/:identifier`
-- **Required Permission**: `deleteApiKey`
-- **Parameters**: `identifier` can be either UUID or the API key string
-- **Response**: Success or error message
-
-</details>
-
----
-
-# 📡 API Documentation
-
-## Health Check
-**GET** `/health`
-- **Authentication**: Not required
-- **Response**: `OK`
-
-<details>
-<summary><b>📊 System Information</b></summary>
-
-### Get All System Data
-**GET** `/data`
-- **Required Permission**: `viewStats`
-- **Response**: Combined CPU, GPU, disk, RAM, mainboard, and OS information
-
-### Get CPU Information
-**GET** `/data/cpu`
-- **Required Permission**: `viewStats`
-- **Response**: CPU details including cores, speed, cache, virtualization
-
-### Get GPU Information
-**GET** `/data/gpu`
-- **Required Permission**: `viewStats`
-- **Response**: Array of graphics cards with details
-
-### Get Disk Information
-**GET** `/data/disk`
-- **Required Permission**: `viewStats`
-- **Response**: Array of disk layouts with size and interface information
-
-### Get RAM Information
-**GET** `/data/ram`
-- **Required Permission**: `viewStats`
-- **Response**: Memory details including total, free, used, and layout
-
-### Get Mainboard Information
-**GET** `/data/mainboard`
-- **Required Permission**: `viewStats`
-- **Response**: Motherboard manufacturer, model, and version
-
-### Get OS Information
-**GET** `/data/os`
-- **Required Permission**: `viewStats`
-- **Response**: Operating system details, platform, kernel, architecture
-
-</details>
-
-<details>
-<summary><b>⚡ Performance</b></summary>
-
-### Run Speed Test
-**GET** `/stats/speedtest`
-- **Required Permission**: `viewStats`
-- **Response**: Download/upload speeds, ping, and server information
-
-</details>
-
-<details>
-<summary><b>⚙️ Process Management</b></summary>
-
-### List Processes
-**GET** `/processes`
-- **Required Permission**: `viewStats`
-- **Response**: Array of running processes with PID, name, CPU, and memory usage
-
-### Kill Process
-**POST** `/processes/kill`
-- **Required Permission**: `viewStats`
-- **Body**: `{ "pid": <process-id> }`
-- **Response**: Success or error message
-
-</details>
-
-<details>
-<summary><b>🔌 Power Management</b></summary>
-
-### Reboot System
-**POST** `/power/reboot`
-- **Required Permission**: `usePowerCommands`
-- **Response**: Confirmation message
-
-### Shutdown System
-**POST** `/power/shutdown`
-- **Required Permission**: `usePowerCommands`
-- **Response**: Confirmation message
-
-</details>
-
-<details>
-<summary><b>🌐 Network Monitoring</b></summary>
-
-### Start Network Sniffer
-**POST** `/network/sniffer/start`
-- **Required Permission**: `viewStats`
-- **Body**: `{ "interface": "<network-interface-name>" }`
-- **Response**: Success message with interface name
-- **Note**: Only one sniffer can run at a time. Requires appropriate system permissions for packet capture.
-
-### Stop Network Sniffer
-**POST** `/network/sniffer/stop`
-- **Required Permission**: `viewStats`
-- **Response**: Success message
-
-### Get Recent Network Packet Logs
-**GET** `/network/sniffer/logs`
-- **Required Permission**: `viewStats`
-- **Response**: Array of captured network packets (last 1000 packets)
-- **Packet Structure**:
-```json
-{
-  "timestamp": "2025-01-01T12:00:00.000Z",
-  "length": 1500,
-  "linkType": "ETHERNET",
-  "ethernet": {
-    "srcMac": "00:11:22:33:44:55",
-    "dstMac": "66:77:88:99:AA:BB",
-    "ethertype": 2048,
-    "payload": "<buffer-data>"
-  }
-}
-```
-
-### Get All Network Packet Logs
-**GET** `/network/sniffer/logs/all`
-- **Required Permission**: `viewStats`
-- **Response**: Object containing total count and all captured packets (max 100,000)
-- **Response Structure**:
-```json
-{
-  "total": 45678,
-  "packets": [
-    {
-      "timestamp": "2025-01-01T12:00:00.000Z",
-      "length": 1500,
-      "linkType": "ETHERNET",
-      "ethernet": {
-        "srcMac": "00:11:22:33:44:55",
-        "dstMac": "66:77:88:99:AA:BB",
-        "ethertype": 2048,
-        "payload": "<buffer-data>"
-      }
-    }
-  ]
-}
-```
-
-### Clear Network Logs
-**DELETE** `/network/sniffer/logs`
-- **Required Permission**: `viewStats`
-- **Response**: Success message
-- **Note**: Clears both recent and all packet logs
-
-</details>
-
----
-
-# 💻 Usage Examples
-
-<details>
-<summary><b>Click to expand usage examples</b></summary>
-
-## Using curl
-```bash
-# Get CPU information
-curl -H "x-api-key: YOUR_API_KEY" http://localhost:4000/data/cpu
-
-# Create a new API key
-curl -X POST http://localhost:4000/api/keys \
-  -H "x-api-key: ADMIN_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"New Key","permissions":{"viewStats":true}}'
-
-# Kill a process
-curl -X POST http://localhost:4000/processes/kill \
-  -H "x-api-key: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"pid":1234}'
-
-# Start network sniffer on eth0
-curl -X POST http://localhost:4000/network/sniffer/start \
-  -H "x-api-key: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"interface":"eth0"}'
-
-# Get recent captured packets (last 1000)
-curl -H "x-api-key: YOUR_API_KEY" http://localhost:4000/network/sniffer/logs
-
-# Get all captured packets
-curl -H "x-api-key: YOUR_API_KEY" http://localhost:4000/network/sniffer/logs/all
-
-# Clear all network logs
-curl -X DELETE http://localhost:4000/network/sniffer/logs \
-  -H "x-api-key: YOUR_API_KEY"
-
-# Stop network sniffer
-curl -X POST http://localhost:4000/network/sniffer/stop \
-  -H "x-api-key: YOUR_API_KEY"
-```
-
-## Using JavaScript/TypeScript
-```javascript
-// Example with fetch
-const response = await fetch('http://localhost:4000/data', {
-  headers: {
-    'x-api-key': 'YOUR_API_KEY'
-  }
-});
-const data = await response.json();
-console.log(data);
-
-// Start network sniffer
-await fetch('http://localhost:4000/network/sniffer/start', {
-  method: 'POST',
-  headers: {
-    'x-api-key': 'YOUR_API_KEY',
-    'Content-Type': 'application/json'
+  "cpu": {
+    "usage": 23.5,
+    "cores": 8,
+    "speed": 3.6,
+    "temperature": 45,
+    "loadAverage": [1.2, 1.5, 1.8]
   },
-  body: JSON.stringify({ interface: 'eth0' })
-});
+  "memory": {
+    "total": 16777216,
+    "used": 8388608,
+    "free": 8388608,
+    "percentage": 50,
+    "swap": {
+      "total": 8388608,
+      "used": 0,
+      "free": 8388608
+    }
+  },
+  "disk": {
+    "total": 512000000,
+    "used": 256000000,
+    "free": 256000000,
+    "percentage": 50,
+    "devices": [...]
+  },
+  "network": {
+    "interfaces": [...],
+    "bandwidth": {
+      "download": 0,
+      "upload": 0
+    }
+  }
+}
+```
+</details>
+
+#### Process Management
+```http
+GET /api/processes
+POST /api/processes/:pid/kill
 ```
 
+#### Hardware Information
+```http
+GET /api/hardware
+GET /api/hardware/cpu
+GET /api/hardware/gpu
+GET /api/hardware/memory
+GET /api/hardware/disk
+```
+
+#### Network Operations
+```http
+POST /api/speedtest
+POST /api/network/sniffer/start
+POST /api/network/sniffer/stop
+GET /api/network/sniffer/logs
+```
+
+#### Power Management
+```http
+POST /api/power/reboot
+POST /api/power/shutdown
+```
+*Requires `usePowerCommands` permission*
+
+### Rate Limiting
+
+- Default: 100 requests per minute
+- Speedtest: 10 requests per minute
+- Power commands: 5 requests per hour
+
+## 🔧 Troubleshooting
+
+### Common Issues & Solutions
+
+<details>
+<summary><b>Services Not Starting</b></summary>
+
+```bash
+# Check service status
+sudo systemctl status statistics-server
+
+# View detailed logs
+sudo journalctl -u statistics-server -n 100
+
+# Restart services
+sudo systemctl restart statistics-server statistics-client
+
+# Check if ports are in use
+sudo lsof -i :4000
+sudo lsof -i :3000
+```
 </details>
+
+<details>
+<summary><b>Bad Gateway Error</b></summary>
+
+```bash
+# Verify services are running
+systemctl is-active statistics-server
+systemctl is-active statistics-client
+
+# Check if services are listening
+netstat -tln | grep -E ":(3000|4000)"
+
+# Test direct access
+curl http://localhost:4000/health
+curl http://localhost:3000/
+```
+</details>
+
+<details>
+<summary><b>Permission Denied</b></summary>
+
+```bash
+# Fix ownership
+sudo chown -R www-data:www-data /var/www/vaultscope-statistics
+
+# Fix permissions
+sudo chmod -R 755 /var/www/vaultscope-statistics
+
+# Check user exists
+id www-data
+```
+</details>
+
+<details>
+<summary><b>Dependencies Missing</b></summary>
+
+```bash
+# Reinstall dependencies
+cd /var/www/vaultscope-statistics
+npm install
+
+# Rebuild
+npm run build
+npm run client:build
+
+# Restart services
+sudo systemctl restart statistics-server statistics-client
+```
+</details>
+
+## 🚧 Development
+
+### Setting Up Development Environment
+
+```bash
+# Clone repository
+git clone https://github.com/vaultscope/statistics.git
+cd statistics
+
+# Install dependencies
+npm install
+
+# Run in development mode
+npm run dev
+
+# Run tests
+npm test
+
+# Lint code
+npm run lint
+
+# Format code
+npm run format
+```
+
+### Project Scripts
+
+```json
+{
+  "scripts": {
+    "server": "ts-node ./server/index.ts",
+    "client": "cd client && next dev",
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "build": "tsc && cd client && next build",
+    "test": "jest",
+    "lint": "eslint . --ext .ts,.tsx",
+    "format": "prettier --write ."
+  }
+}
+```
+
+### Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+## 📄 License
+
+This project is licensed under the ISC License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- [Express.js](https://expressjs.com/) - Web framework
+- [Next.js](https://nextjs.org/) - React framework
+- [TypeScript](https://www.typescriptlang.org/) - Type safety
+- [SystemInformation](https://systeminformation.io/) - System monitoring
+- [Better SQLite3](https://github.com/JoshuaWise/better-sqlite3) - Database
+- [Tailwind CSS](https://tailwindcss.com/) - Styling
+- [Recharts](https://recharts.org/) - Charts
+
+## 📞 Support
+- **[Discord](https://discord.gg/vaultscope)**
+- **Contact Developer:** cptcr@proton.me
 
 ---
 
-# 🔧 Server Management
+<div align="center">
 
-<details>
-<summary><b>Click to expand server management</b></summary>
+**VaultScope Statistics** - Enterprise System Monitoring Made Simple
 
-## Starting the Server
-```bash
-# Start the server
-npm run start
-
-# The server will run on http://localhost:4000
-```
-
-## Available NPM Scripts
-```bash
-npm run start          # Start the server
-npm run apikey         # Manage API keys
-npm run speed          # Run speedtest
-npm run sysinfo        # Get system information
-```
-
-</details>
-
----
-
-# 🔗 Panel Connection
-
-<details>
-<summary><b>Click to expand panel connection details</b></summary>
-
-Documentation for connecting remote servers to the statistics panel will be added here.
-
-</details>
+Made with ❤️ by the VaultScope Team
+[GitHub](https://github.com/vaultscope)
+</div>
