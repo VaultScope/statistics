@@ -387,109 +387,125 @@ install_application() {
 }
 
 # ============================================================================
-# DATABASE AND API KEYS SETUP
+# DATABASE SETUP
 # ============================================================================
 setup_databases() {
-    print_section "Setting Up Databases"
+    print_section "Setting Up Database"
     
-    # Setup JSON database with default categories
-    if [ "${INSTALL_OPTIONS[categories]}" = true ]; then
-        print_progress "Creating database with default categories"
-        
-        cat > "$INSTALL_DIR/database.json" << 'EOF'
-{
-  "users": [],
-  "nodes": [],
-  "categories": [
-    {"id": 1, "name": "Production", "color": "#22c55e", "icon": "server", "createdAt": "2024-01-01T00:00:00.000Z"},
-    {"id": 2, "name": "Development", "color": "#3b82f6", "icon": "code", "createdAt": "2024-01-01T00:00:00.000Z"},
-    {"id": 3, "name": "Testing", "color": "#f59e0b", "icon": "flask", "createdAt": "2024-01-01T00:00:00.000Z"},
-    {"id": 4, "name": "Backup", "color": "#8b5cf6", "icon": "database", "createdAt": "2024-01-01T00:00:00.000Z"},
-    {"id": 5, "name": "Monitoring", "color": "#ef4444", "icon": "activity", "createdAt": "2024-01-01T00:00:00.000Z"}
-  ],
-  "roles": [
-    {
-      "id": "admin",
-      "name": "Administrator",
-      "description": "Full system access",
-      "permissions": ["nodes.view", "nodes.create", "nodes.edit", "nodes.delete", "nodes.power", "users.view", "users.create", "users.edit", "users.delete", "users.roles", "apikeys.view", "apikeys.create", "apikeys.edit", "apikeys.delete", "apikeys.logs", "system.roles", "system.permissions", "system.settings", "system.categories", "monitoring.hardware", "monitoring.process", "monitoring.network", "monitoring.overview"],
-      "isSystem": true,
-      "createdAt": "2024-01-01T00:00:00.000Z",
-      "updatedAt": "2024-01-01T00:00:00.000Z"
-    },
-    {
-      "id": "manager",
-      "name": "Manager",
-      "description": "Manage nodes and API keys",
-      "permissions": ["nodes.view", "nodes.create", "nodes.edit", "apikeys.view", "apikeys.create", "apikeys.edit", "apikeys.logs", "monitoring.hardware", "monitoring.process", "monitoring.network", "monitoring.overview", "system.categories"],
-      "isSystem": true,
-      "createdAt": "2024-01-01T00:00:00.000Z",
-      "updatedAt": "2024-01-01T00:00:00.000Z"
-    },
-    {
-      "id": "operator",
-      "name": "Operator",
-      "description": "Monitor and operate nodes",
-      "permissions": ["nodes.view", "nodes.power", "monitoring.hardware", "monitoring.process", "monitoring.network", "monitoring.overview", "apikeys.view", "apikeys.logs"],
-      "isSystem": true,
-      "createdAt": "2024-01-01T00:00:00.000Z",
-      "updatedAt": "2024-01-01T00:00:00.000Z"
-    },
-    {
-      "id": "viewer",
-      "name": "Viewer",
-      "description": "Read-only access",
-      "permissions": ["nodes.view", "monitoring.hardware", "monitoring.overview"],
-      "isSystem": true,
-      "createdAt": "2024-01-01T00:00:00.000Z",
-      "updatedAt": "2024-01-01T00:00:00.000Z"
-    }
-  ]
-}
-EOF
+    # Create SQLite database directory if needed
+    print_progress "Creating database directory"
+    mkdir -p "$INSTALL_DIR"
+    print_done
+    
+    # Run database migrations
+    print_progress "Running database migrations"
+    cd "$INSTALL_DIR"
+    
+    # Generate migration files
+    npm run db:generate &>/dev/null 2>&1 || true
+    
+    # Run migrations and seed data
+    npm run db:migrate &>/dev/null 2>&1
+    
+    if [ $? -eq 0 ]; then
         print_done
+        print_success "Database initialized with default data"
+    else
+        print_warning "Database migration encountered issues - will retry on first start"
     fi
     
-    # Setup API keys
-    if [ "${INSTALL_OPTIONS[apikey]}" = true ]; then
-        print_progress "Creating initial API key"
-        
-        # Generate a secure API key
-        API_KEY=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-45)
-        UUID=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "$(date +%s)-$(openssl rand -hex 8)")
-        
-        cat > "$INSTALL_DIR/apiKeys.json" << EOF
-[
-  {
-    "uuid": "$UUID",
-    "name": "Initial Admin Key",
-    "key": "$API_KEY",
-    "permissions": {
-      "viewStats": true,
-      "createApiKey": true,
-      "deleteApiKey": true,
-      "viewApiKeys": true,
-      "usePowerCommands": true
-    },
-    "createdAt": "$(date -Iseconds)"
-  }
-]
-EOF
-        
-        # Copy to multiple locations for compatibility with different runtime paths
-        mkdir -p "$INSTALL_DIR/dist/server"
-        cp "$INSTALL_DIR/apiKeys.json" "$INSTALL_DIR/dist/server/apiKeys.json"
-        
-        # Also ensure it exists in the server directory if it exists
-        if [ -d "$INSTALL_DIR/server" ]; then
-            cp "$INSTALL_DIR/apiKeys.json" "$INSTALL_DIR/server/apiKeys.json"
-        fi
-        
+    # Set proper permissions
+    print_progress "Setting database permissions"
+    if [ -f "$INSTALL_DIR/database.db" ]; then
+        chmod 660 "$INSTALL_DIR/database.db"
+        chown www-data:www-data "$INSTALL_DIR/database.db" 2>/dev/null || \
+        chown $(whoami):$(whoami) "$INSTALL_DIR/database.db"
+    fi
+    print_done
+    
+    # Legacy JSON migration (if old files exist)
+    if [ -f "$INSTALL_DIR/database.json" ] || [ -f "$INSTALL_DIR/apiKeys.json" ]; then
+        print_progress "Migrating legacy JSON data to SQLite"
+        npm run db:migrate &>/dev/null 2>&1
         print_done
-        
+        print_info "Legacy data migrated and backed up"
+    fi
+    
+    # Setup initial admin API key if requested
+    if [ "${INSTALL_OPTIONS[apikey]}" = true ]; then
+        setup_initial_apikey
+    fi
+}
+
+# ============================================================================
+# API KEY SETUP
+# ============================================================================
+setup_initial_apikey() {
+    print_progress "Creating initial admin API key"
+    
+    # Generate a secure API key
+    API_KEY=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-45)
+    UUID=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "$(date +%s)-$(openssl rand -hex 8)")
+    
+    # Create API key using Node.js script
+    cat > "$INSTALL_DIR/create-initial-key.js" << 'EOFSCRIPT'
+const Database = require('better-sqlite3');
+const path = require('path');
+
+// Create database connection
+const dbPath = process.env.NODE_ENV === 'production' 
+  ? '/var/www/vaultscope-statistics/database.db'
+  : path.join(process.cwd(), 'database.db');
+
+const db = new Database(dbPath);
+
+// Create API key
+const key = process.env.API_KEY;
+const uuid = process.env.API_UUID;
+
+try {
+  const stmt = db.prepare(`
+    INSERT INTO api_keys (uuid, name, key, permissions, is_active)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  
+  stmt.run(
+    uuid,
+    'Initial Admin Key',
+    key,
+    JSON.stringify({
+      viewStats: true,
+      createApiKey: true,
+      deleteApiKey: true,
+      viewApiKeys: true,
+      usePowerCommands: true
+    }),
+    1
+  );
+  
+  console.log('API key created successfully');
+  process.exit(0);
+} catch (error) {
+  console.error('Failed to create API key:', error);
+  process.exit(1);
+} finally {
+  db.close();
+}
+EOFSCRIPT
+    
+    # Run the script to create the API key
+    API_KEY="$API_KEY" API_UUID="$UUID" node "$INSTALL_DIR/create-initial-key.js" &>/dev/null 2>&1
+    
+    if [ $? -eq 0 ]; then
+        print_done
         # Save API key for display later
         GENERATED_API_KEY=$API_KEY
+    else
+        print_warning "Could not create initial API key - you can create one manually later"
     fi
+    
+    # Clean up the temporary script
+    rm -f "$INSTALL_DIR/create-initial-key.js"
 }
 
 # ============================================================================

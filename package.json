@@ -6,6 +6,10 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "tsc",
+    "db:generate": "drizzle-kit generate:sqlite",
+    "db:migrate": "ts-node ./server/db/migrate.ts",
+    "db:push": "drizzle-kit push:sqlite",
+    "db:studio": "drizzle-kit studio",
     "build:server": "tsc",
     "build:client": "cd client && next build",
     "build:all": "npm run build:server && npm run build:client",
@@ -44,6 +48,7 @@
     "axios": "^1.11.0",
     "bcryptjs": "^3.0.2",
     "better-sqlite3": "^12.2.0",
+    "drizzle-orm": "^0.29.0",
     "cookie": "^1.0.2",
     "cors": "^2.8.5",
     "crypto": "^1.0.1",
@@ -69,6 +74,7 @@
   },
   "devDependencies": {
     "concurrently": "^9.2.1",
+    "drizzle-kit": "^0.20.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.2"
   },
