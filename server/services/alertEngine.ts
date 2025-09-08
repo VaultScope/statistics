@@ -112,12 +112,13 @@ export class AlertEngine {
 
       // Process CPU usage
       if (cpuRes.status === 'fulfilled') {
-        metrics.metrics.cpu_usage = cpuRes.value.data.usage || 0;
+        const cpuData = cpuRes.value.data as any;
+        metrics.metrics.cpu_usage = cpuData.usage || 0;
       }
 
       // Process memory usage
       if (memRes.status === 'fulfilled') {
-        const memData = memRes.value.data;
+        const memData = memRes.value.data as any;
         const totalMem = memData.total || 1;
         const usedMem = memData.used || 0;
         metrics.metrics.memory_usage = (usedMem / totalMem) * 100;
@@ -144,7 +145,7 @@ export class AlertEngine {
 
       // Process load averages and temperature
       if (loadRes.status === 'fulfilled') {
-        const cpuData = loadRes.value.data;
+        const cpuData = loadRes.value.data as any;
         if (cpuData.currentLoad) {
           metrics.metrics.load_1m = cpuData.currentLoad.avgLoad1 || 0;
           metrics.metrics.load_5m = cpuData.currentLoad.avgLoad5 || 0;

@@ -2,7 +2,7 @@ import { eq, and, or, like, desc } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { db, users, roles, sessions, auditLogs } from '../index';
-import type { NewUser, User, Role, NewRole, Session, NewSession } from '../schema/users';
+import type { NewUser, User, Role, NewRole, Session, NewSession, AuditLog, NewAuditLog } from '../schema/users';
 
 export class UserRepository {
   // User CRUD operations

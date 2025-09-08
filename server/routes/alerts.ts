@@ -1,21 +1,15 @@
 import { Router, Request, Response } from 'express';
 import alertModel from '../models/alerts';
 import alertEngine from '../services/alertEngine';
-import { authenticateApiKey } from '../functions/auth';
+import authenticate from '../functions/auth';
 
 const router = Router();
 
-// Middleware to check permissions
-const requireAlertPermission = (req: Request, res: Response, next: Function) => {
-  const apiKey = req.apiKey as any;
-  if (!apiKey?.permissions?.viewStats) {
-    return res.status(403).json({ error: 'Insufficient permissions' });
-  }
-  next();
-};
+// Middleware to check permissions - using authenticate middleware
+const requireAlertPermission = authenticate(['viewStats']);
 
 // Get all alerts
-router.get('/alerts', authenticateApiKey, requireAlertPermission, (req: Request, res: Response) => {
+router.get('/alerts', requireAlertPermission, (req: Request, res: Response) => {
   try {
     const alerts = alertModel.getAllAlerts();
     res.json(alerts);
@@ -26,7 +20,7 @@ router.get('/alerts', authenticateApiKey, requireAlertPermission, (req: Request,
 });
 
 // Get alerts for a specific node
-router.get('/alerts/node/:nodeId', authenticateApiKey, requireAlertPermission, (req: Request, res: Response) => {
+router.get('/alerts/node/:nodeId', requireAlertPermission, (req: Request, res: Response) => {
   try {
     const nodeId = parseInt(req.params.nodeId);
     const alerts = alertModel.getAlertsByNode(nodeId);
@@ -38,7 +32,7 @@ router.get('/alerts/node/:nodeId', authenticateApiKey, requireAlertPermission, (
 });
 
 // Get a specific alert
-router.get('/alerts/:id', authenticateApiKey, requireAlertPermission, (req: Request, res: Response) => {
+router.get('/alerts/:id', requireAlertPermission, (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id);
     const alert = alertModel.getAlert(id);
@@ -55,7 +49,7 @@ router.get('/alerts/:id', authenticateApiKey, requireAlertPermission, (req: Requ
 });
 
 // Create a new alert
-router.post('/alerts', authenticateApiKey, requireAlertPermission, (req: Request, res: Response) => {
+router.post('/alerts', requireAlertPermission, (req: Request, res: Response) => {
   try {
     const { nodeId, metric, condition, threshold, severity, enabled = true, cooldown = 5 } = req.body;
     
@@ -82,7 +76,7 @@ router.post('/alerts', authenticateApiKey, requireAlertPermission, (req: Request
 });
 
 // Update an alert
-router.patch('/alerts/:id', authenticateApiKey, requireAlertPermission, (req: Request, res: Response) => {
+router.patch('/alerts/:id', requireAlertPermission, (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id);
     const updates = req.body;
@@ -102,7 +96,7 @@ router.patch('/alerts/:id', authenticateApiKey, requireAlertPermission, (req: Re
 });
 
 // Delete an alert
-router.delete('/alerts/:id', authenticateApiKey, requireAlertPermission, (req: Request, res: Response) => {
+router.delete('/alerts/:id', requireAlertPermission, (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id);
     const success = alertModel.deleteAlert(id);
@@ -119,7 +113,7 @@ router.delete('/alerts/:id', authenticateApiKey, requireAlertPermission, (req: R
 });
 
 // Get alert history
-router.get('/alerts/history/recent', authenticateApiKey, requireAlertPermission, (req: Request, res: Response) => {
+router.get('/alerts/history/recent', requireAlertPermission, (req: Request, res: Response) => {
   try {
     const limit = parseInt(req.query.limit as string) || 100;
     const history = alertModel.getRecentAlerts(limit);
@@ -131,7 +125,7 @@ router.get('/alerts/history/recent', authenticateApiKey, requireAlertPermission,
 });
 
 // Acknowledge an alert
-router.post('/alerts/history/:id/acknowledge', authenticateApiKey, requireAlertPermission, (req: Request, res: Response) => {
+router.post('/alerts/history/:id/acknowledge', requireAlertPermission, (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id);
     const { acknowledgedBy } = req.body;
@@ -154,7 +148,7 @@ router.post('/alerts/history/:id/acknowledge', authenticateApiKey, requireAlertP
 });
 
 // Get all notification channels
-router.get('/notification-channels', authenticateApiKey, requireAlertPermission, (req: Request, res: Response) => {
+router.get('/notification-channels', requireAlertPermission, (req: Request, res: Response) => {
   try {
     const channels = alertModel.getAllChannels();
     res.json(channels);
@@ -165,7 +159,7 @@ router.get('/notification-channels', authenticateApiKey, requireAlertPermission,
 });
 
 // Create a notification channel
-router.post('/notification-channels', authenticateApiKey, requireAlertPermission, (req: Request, res: Response) => {
+router.post('/notification-channels', requireAlertPermission, (req: Request, res: Response) => {
   try {
     const { name, type, config, enabled = true } = req.body;
     
@@ -195,7 +189,7 @@ router.post('/notification-channels', authenticateApiKey, requireAlertPermission
 });
 
 // Update a notification channel
-router.patch('/notification-channels/:id', authenticateApiKey, requireAlertPermission, (req: Request, res: Response) => {
+router.patch('/notification-channels/:id', requireAlertPermission, (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id);
     const updates = req.body;
@@ -224,7 +218,7 @@ router.patch('/notification-channels/:id', authenticateApiKey, requireAlertPermi
 });
 
 // Delete a notification channel
-router.delete('/notification-channels/:id', authenticateApiKey, requireAlertPermission, (req: Request, res: Response) => {
+router.delete('/notification-channels/:id', requireAlertPermission, (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id);
     const success = alertModel.deleteChannel(id);
@@ -241,7 +235,7 @@ router.delete('/notification-channels/:id', authenticateApiKey, requireAlertPerm
 });
 
 // Link alert to notification channel
-router.post('/alerts/:alertId/channels/:channelId', authenticateApiKey, requireAlertPermission, (req: Request, res: Response) => {
+router.post('/alerts/:alertId/channels/:channelId', requireAlertPermission, (req: Request, res: Response) => {
   try {
     const alertId = parseInt(req.params.alertId);
     const channelId = parseInt(req.params.channelId);
@@ -260,7 +254,7 @@ router.post('/alerts/:alertId/channels/:channelId', authenticateApiKey, requireA
 });
 
 // Unlink alert from notification channel
-router.delete('/alerts/:alertId/channels/:channelId', authenticateApiKey, requireAlertPermission, (req: Request, res: Response) => {
+router.delete('/alerts/:alertId/channels/:channelId', requireAlertPermission, (req: Request, res: Response) => {
   try {
     const alertId = parseInt(req.params.alertId);
     const channelId = parseInt(req.params.channelId);
@@ -279,7 +273,7 @@ router.delete('/alerts/:alertId/channels/:channelId', authenticateApiKey, requir
 });
 
 // Get channels for an alert
-router.get('/alerts/:id/channels', authenticateApiKey, requireAlertPermission, (req: Request, res: Response) => {
+router.get('/alerts/:id/channels', requireAlertPermission, (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id);
     const channels = alertModel.getChannelsForAlert(id);
@@ -291,7 +285,7 @@ router.get('/alerts/:id/channels', authenticateApiKey, requireAlertPermission, (
 });
 
 // Alert engine control endpoints
-router.post('/alerts/engine/start', authenticateApiKey, requireAlertPermission, (req: Request, res: Response) => {
+router.post('/alerts/engine/start', requireAlertPermission, (req: Request, res: Response) => {
   try {
     alertEngine.start();
     res.json({ status: 'started' });
@@ -301,7 +295,7 @@ router.post('/alerts/engine/start', authenticateApiKey, requireAlertPermission, 
   }
 });
 
-router.post('/alerts/engine/stop', authenticateApiKey, requireAlertPermission, (req: Request, res: Response) => {
+router.post('/alerts/engine/stop', requireAlertPermission, (req: Request, res: Response) => {
   try {
     alertEngine.stop();
     res.json({ status: 'stopped' });
