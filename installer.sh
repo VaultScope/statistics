@@ -643,6 +643,12 @@ RATELIMIT_FILE_EOF
         npm install --silent >/dev/null 2>&1 || npm install >/dev/null 2>&1 || true
         print_done
         
+        # Create initial database file for client
+        print_progress "Creating client database"
+        mkdir -p data
+        echo '{"users":[],"nodes":[],"categories":[],"roles":[]}' > database.json
+        print_done
+        
         print_progress "Building client application"
         # Build Next.js app - this creates .next directory
         npm run build >/dev/null 2>&1 || npx next build >/dev/null 2>&1 || true
