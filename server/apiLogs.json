@@ -1,4 +1,16 @@
 {
   "logs": [
+    {
+      "id": "8e9bd9c2-b8c2-471a-8be1-5db55f937638",
+      "apiKeyId": "invalid",
+      "apiKeyName": "Invalid API Key",
+      "endpoint": "/data/mainboard",
+      "method": "GET",
+      "statusCode": 401,
+      "ipAddress": "::ffff:127.0.0.1",
+      "userAgent": "axios/1.11.0",
+      "timestamp": "2025-09-08T23:17:40.795Z",
+      "responseTime": 0
+    }
   ]
 }
