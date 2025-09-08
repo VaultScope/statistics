@@ -193,7 +193,7 @@ nuclear_cleanup() {
     killall npm 2>/dev/null || true
     print_done
     
-    # Remove systemd services
+    # Remove systemd services - ULTRA NUCLEAR MODE
     if [ "$SERVICE_MANAGER" = "systemd" ]; then
         print_progress "Destroying all systemd services"
         
@@ -203,6 +203,7 @@ nuclear_cleanup() {
             "vaultscope-statistics-server" "vaultscope-statistics-client"
         )
         
+        # Stop and disable everything
         for service in "${services[@]}"; do
             systemctl stop "$service" 2>/dev/null || true
             systemctl stop "${service}.service" 2>/dev/null || true
@@ -211,21 +212,36 @@ nuclear_cleanup() {
             systemctl mask "$service" 2>/dev/null || true
         done
         
-        # Remove all service files
-        find /etc/systemd /lib/systemd /usr/lib/systemd /run/systemd \
-            \( -name "*statistics*.service" -o -name "*vaultscope*.service" \) \
-            -type f -delete 2>/dev/null || true
+        # FORCE reload to flush any cached service definitions
+        systemctl daemon-reload 2>/dev/null || true
         
-        rm -rf /etc/systemd/system/statistics*.service* 2>/dev/null || true
-        rm -rf /etc/systemd/system/vaultscope*.service* 2>/dev/null || true
+        # Remove ALL service files from ALL possible locations
+        rm -f /etc/systemd/system/statistics*.service 2>/dev/null || true
+        rm -f /etc/systemd/system/vaultscope*.service 2>/dev/null || true
+        rm -f /lib/systemd/system/statistics*.service 2>/dev/null || true
+        rm -f /lib/systemd/system/vaultscope*.service 2>/dev/null || true
+        rm -f /usr/lib/systemd/system/statistics*.service 2>/dev/null || true
+        rm -f /usr/lib/systemd/system/vaultscope*.service 2>/dev/null || true
+        rm -rf /etc/systemd/system/statistics*.service.d 2>/dev/null || true
+        rm -rf /etc/systemd/system/vaultscope*.service.d 2>/dev/null || true
+        rm -rf /run/systemd/system/statistics*.service* 2>/dev/null || true
+        rm -rf /run/systemd/system/vaultscope*.service* 2>/dev/null || true
         
+        # Remove from multi-user.target.wants
+        rm -f /etc/systemd/system/multi-user.target.wants/statistics*.service 2>/dev/null || true
+        rm -f /etc/systemd/system/multi-user.target.wants/vaultscope*.service 2>/dev/null || true
+        
+        # Clear systemd cache completely
         systemctl daemon-reload 2>/dev/null || true
         systemctl reset-failed 2>/dev/null || true
         
-        # Unmask services
+        # Unmask services to allow recreation
         for service in "${services[@]}"; do
             systemctl unmask "$service" 2>/dev/null || true
         done
+        
+        # Final reload to ensure everything is cleared
+        systemctl daemon-reload 2>/dev/null || true
         
         print_done
     fi
