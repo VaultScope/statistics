@@ -49,7 +49,8 @@ export default function RegisterPage() {
         return;
       }
       
-      router.push('/');
+      // Force a full page reload to ensure cookies are properly set
+      window.location.href = '/';
     } catch (err) {
       setError('An error occurred');
     } finally {

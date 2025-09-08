@@ -48,6 +48,12 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/register', request.url));
   }
   
+  // Allow access to register page if user has session (just registered)
+  if (hasUsers && pathname === '/register' && hasSession) {
+    return NextResponse.redirect(new URL('/', request.url));
+  }
+  
+  // Only redirect from register to login if user exists and no session
   if (hasUsers && pathname === '/register' && !hasSession) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
