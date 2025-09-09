@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 
+import { ApiKeyRepository } from '../db/repositories/apiKeyRepository';
 import { db, apiKeys } from '../db/index';
-import { eq } from 'drizzle-orm';
-import * as crypto from 'crypto';
-import makeid from '../functions/keys/generate';
 
 const colors = {
   reset: '\x1b[0m',
@@ -14,6 +12,8 @@ const colors = {
   cyan: '\x1b[36m',
   blue: '\x1b[34m',
 };
+
+const apiKeyRepository = new ApiKeyRepository();
 
 interface InitialAdminKey {
   name: string;
@@ -33,9 +33,7 @@ async function initializeDatabase(): Promise<InitialAdminKey | null> {
       return null;
     }
 
-    // Create the initial admin API key
-    const adminUuid = crypto.randomUUID();
-    const adminKey = makeid(32); // Generate a 32-character admin key
+    // Create the initial admin API key using the repository
     const adminPermissions = {
       viewStats: true,
       createApiKey: true,
@@ -47,25 +45,14 @@ async function initializeDatabase(): Promise<InitialAdminKey | null> {
 
     console.log(`${colors.cyan}[INIT]${colors.reset} Creating initial admin API key...`);
 
-    const [createdKey] = await db.insert(apiKeys).values({
-      uuid: adminUuid,
-      name: 'Initial Admin Key',
-      key: adminKey,
-      permissions: JSON.stringify(adminPermissions),
-      isActive: true,
-      lastUsed: null,
-      usageCount: 0,
-      rateLimit: 10000, // Higher rate limit for admin
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    }).returning();
+    const createdKey = await apiKeyRepository.createApiKey('Initial Admin Key', adminPermissions);
 
-    console.log(`${colors.green}[SUCCESS]${colors.reset} Created admin API key with UUID: ${adminUuid}`);
+    console.log(`${colors.green}[SUCCESS]${colors.reset} Created admin API key with UUID: ${createdKey.uuid}`);
     
     return {
       name: createdKey.name,
-      key: adminKey,
-      uuid: adminUuid
+      key: createdKey.key,
+      uuid: createdKey.uuid!
     };
 
   } catch (error) {
