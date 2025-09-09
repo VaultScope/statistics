@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Bell, Plus, Edit2, Trash2, X, Check, AlertTriangle, AlertCircle, Info, Mail, MessageSquare, Webhook, Users } from 'lucide-react';
 
-interface Alert {
+interface AlertRule {
   id: number;
   nodeId: number;
   metric: string;
@@ -56,7 +56,7 @@ const CHANNEL_ICONS = {
 };
 
 export default function AlertsManager() {
-  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [alerts, setAlerts] = useState<AlertRule[]>([]);
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
   const [nodes, setNodes] = useState<Node[]>([]);
   const [loading, setLoading] = useState(true);
@@ -65,19 +65,32 @@ export default function AlertsManager() {
   const [editingAlert, setEditingAlert] = useState<number | null>(null);
   const [editingChannel, setEditingChannel] = useState<number | null>(null);
   
-  const [alertForm, setAlertForm] = useState({
+  const [alertForm, setAlertForm] = useState<{
+    nodeId: string;
+    metric: string;
+    condition: 'above' | 'below' | 'equals' | 'not_equals';
+    threshold: number;
+    severity: 'critical' | 'warning' | 'info';
+    cooldown: number;
+    enabled: boolean;
+  }>({
     nodeId: '',
     metric: 'cpu_usage',
-    condition: 'above' as const,
+    condition: 'above',
     threshold: 80,
-    severity: 'warning' as const,
+    severity: 'warning',
     cooldown: 5,
     enabled: true
   });
 
-  const [channelForm, setChannelForm] = useState({
+  const [channelForm, setChannelForm] = useState<{
+    name: string;
+    type: 'email' | 'slack' | 'discord' | 'webhook' | 'teams' | 'pagerduty';
+    config: any;
+    enabled: boolean;
+  }>({
     name: '',
-    type: 'email' as const,
+    type: 'email',
     config: {},
     enabled: true
   });
@@ -130,7 +143,7 @@ export default function AlertsManager() {
       
       if (!res.ok) {
         const error = await res.json();
-        alert(error.error || 'Failed to create alert');
+        window.alert(error.error || 'Failed to create alert');
         return;
       }
       
@@ -139,7 +152,7 @@ export default function AlertsManager() {
       fetchData();
     } catch (error) {
       console.error('Error creating alert:', error);
-      alert('Failed to create alert');
+      window.alert('Failed to create alert');
     }
   };
 
@@ -156,7 +169,7 @@ export default function AlertsManager() {
       
       if (!res.ok) {
         const error = await res.json();
-        alert(error.error || 'Failed to update alert');
+        window.alert(error.error || 'Failed to update alert');
         return;
       }
       
@@ -165,7 +178,7 @@ export default function AlertsManager() {
       fetchData();
     } catch (error) {
       console.error('Error updating alert:', error);
-      alert('Failed to update alert');
+      window.alert('Failed to update alert');
     }
   };
 
@@ -179,14 +192,14 @@ export default function AlertsManager() {
       
       if (!res.ok) {
         const error = await res.json();
-        alert(error.error || 'Failed to delete alert');
+        window.alert(error.error || 'Failed to delete alert');
         return;
       }
       
       fetchData();
     } catch (error) {
       console.error('Error deleting alert:', error);
-      alert('Failed to delete alert');
+      window.alert('Failed to delete alert');
     }
   };
 
@@ -205,7 +218,7 @@ export default function AlertsManager() {
       
       if (!res.ok) {
         const error = await res.json();
-        alert(error.error || 'Failed to create channel');
+        window.alert(error.error || 'Failed to create channel');
         return;
       }
       
@@ -214,11 +227,11 @@ export default function AlertsManager() {
       fetchData();
     } catch (error) {
       console.error('Error creating channel:', error);
-      alert('Failed to create channel');
+      window.alert('Failed to create channel');
     }
   };
 
-  const toggleAlertEnabled = async (alert: Alert) => {
+  const toggleAlertEnabled = async (alert: AlertRule) => {
     try {
       const res = await fetch(`/api/alerts/${alert.id}`, {
         method: 'PATCH',
@@ -228,7 +241,7 @@ export default function AlertsManager() {
       
       if (!res.ok) {
         const error = await res.json();
-        alert(error.error || 'Failed to toggle alert');
+        window.alert(error.error || 'Failed to toggle alert');
         return;
       }
       
