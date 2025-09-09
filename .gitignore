@@ -1,0 +1,66 @@
+node_modules/
+dist/
+.env
+package-lock.json
+tsconfig.tsbuildinfo
+.claude/
+CLAUDE.md
+test.md
+.next/
+start.sh
+test-api.sh
+test-endpoints.txt
+installer.sh.backup
+.heapsnapshot
+
+# Test files
+synthetic.js
+synthetic.log
+test-results.json
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+database.json
+client/database.json
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Temporary files
+*.tmp
+*.temp
+*.cache
+*.swp
+*.swo
+*.bak
+.DS_Store
+
+# IDE files
+.vscode/
+.idea/
+
+# Security sensitive files
+*.key
+*.pem
+*.cert
+*.crt
+*.p12
+*.pfx
+
+# Build artifacts
+build/
+out/
+
+# API keys and credentials
+apikeys.json
+credentials.json
+secrets.json
