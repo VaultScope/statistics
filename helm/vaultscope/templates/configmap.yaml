@@ -1,0 +1,56 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vaultscope.fullname" . }}-config
+  labels:
+    {{- include "vaultscope.labels" . | nindent 4 }}
+data:
+  app-config.json: |
+    {
+      "environment": {{ .Values.env.NODE_ENV | quote }},
+      "port": {{ .Values.service.targetPort }},
+      "database": {
+        "type": {{ if .Values.postgresql.enabled }}"postgresql"{{ else }}"sqlite"{{ end }},
+        "path": {{ .Values.env.DATABASE_URL | quote }}
+      },
+      {{- if .Values.influxdb.enabled }}
+      "influxdb": {
+        "enabled": true,
+        "url": {{ .Values.influxdb.url | quote }},
+        "org": {{ .Values.influxdb.org | quote }},
+        "bucket": {{ .Values.influxdb.bucket | quote }},
+        "retentionDays": {{ .Values.influxdb.retentionDays }}
+      },
+      {{- end }}
+      {{- if .Values.redis.enabled }}
+      "redis": {
+        "enabled": true,
+        "host": {{ .Values.redis.host | quote }},
+        "port": {{ .Values.redis.port }}
+      },
+      {{- end }}
+      {{- if .Values.ldap.enabled }}
+      "ldap": {
+        "enabled": true,
+        "url": {{ .Values.ldap.url | quote }},
+        "bindDN": {{ .Values.ldap.bindDN | quote }},
+        "searchBase": {{ .Values.ldap.searchBase | quote }},
+        "searchFilter": {{ .Values.ldap.searchFilter | quote }}
+      },
+      {{- end }}
+      {{- if .Values.oauth.enabled }}
+      "oauth": {
+        "enabled": true,
+        "providers": {{ .Values.oauth.providers | toJson }}
+      },
+      {{- end }}
+      "rateLimiting": {
+        "enabled": {{ .Values.rateLimiting.enabled }},
+        "requestsPerMinute": {{ .Values.rateLimiting.requestsPerMinute }},
+        "requestsPerHour": {{ .Values.rateLimiting.requestsPerHour }}
+      },
+      "monitoring": {
+        "enabled": {{ .Values.monitoring.enabled }},
+        "metricsPath": "/metrics"
+      }
+    }
