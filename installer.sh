@@ -6,6 +6,20 @@
 
 set +e  # Don't exit on errors - we handle them properly
 
+# Compatibility check
+if [ "${BASH_VERSION%%.*}" -lt 4 ]; then
+    echo "Error: This installer requires Bash 4.0 or higher"
+    echo "Your version: $BASH_VERSION"
+    exit 1
+fi
+
+# Check for required commands
+for cmd in git curl wget; do
+    if ! command -v $cmd >/dev/null 2>&1; then
+        echo "Warning: $cmd is not installed. Some features may not work."
+    fi
+done
+
 # Parse command line arguments
 UNINSTALL_MODE=false
 RECOVERY_MODE=false
@@ -71,9 +85,14 @@ LOG_FILE="/tmp/vaultscope_install_$(date +%Y%m%d_%H%M%S).log"
 PROGRESS_CURRENT=0
 PROGRESS_TOTAL=100
 
-# Terminal capabilities
-TERM_WIDTH=$(tput cols 2>/dev/null || echo 80)
-TERM_HEIGHT=$(tput lines 2>/dev/null || echo 24)
+# Terminal capabilities - safe defaults
+if command -v tput >/dev/null 2>&1; then
+    TERM_WIDTH=$(tput cols 2>/dev/null || echo 80)
+    TERM_HEIGHT=$(tput lines 2>/dev/null || echo 24)
+else
+    TERM_WIDTH=80
+    TERM_HEIGHT=24
+fi
 
 # ============================================================================
 # COLORS AND UI ELEMENTS
@@ -250,12 +269,22 @@ show_spinner() {
     local pid=$1
     local message="${2:-Processing}"
     local frame=0
+    local timeout=0
     
-    while ps -p $pid > /dev/null 2>&1; do
+    # Safety timeout of 300 seconds (5 minutes)
+    while ps -p $pid > /dev/null 2>&1 && [ $timeout -lt 3000 ]; do
         printf "\r  ${CYAN}${SPINNER_FRAMES[$frame]}${NC} ${message}..."
         frame=$(( (frame + 1) % ${#SPINNER_FRAMES[@]} ))
         sleep 0.1
+        timeout=$((timeout + 1))
     done
+    
+    # Kill process if timeout reached
+    if [ $timeout -ge 3000 ]; then
+        kill -9 $pid 2>/dev/null || true
+        printf "\r  ${RED}${CROSS}${NC} ${message}... (timeout)"
+    fi
+    
     printf "\r${CLEAR_LINE}"
 }
 
@@ -291,19 +320,35 @@ print_box() {
     local color="${3:-$CYAN}"
     local width="${4:-60}"
     
-    echo -e "${color}┌$(printf '─%.0s' $(seq 1 $((width-2))))┐${NC}"
+    # Create horizontal line
+    local hline=""
+    local i
+    for ((i=0; i<width-2; i++)); do
+        hline="${hline}─"
+    done
+    
+    echo -e "${color}┌${hline}┐${NC}"
     if [ -n "$title" ]; then
-        echo -e "${color}│${NC} ${BOLD}$title${NC}$(printf ' %.0s' $(seq 1 $((width-${#title}-3))))${color}│${NC}"
-        echo -e "${color}├$(printf '─%.0s' $(seq 1 $((width-2))))┤${NC}"
+        local title_pad=$((width - ${#title} - 3))
+        local padding=""
+        for ((i=0; i<title_pad; i++)); do
+            padding="${padding} "
+        done
+        echo -e "${color}│${NC} ${BOLD}$title${NC}${padding}${color}│${NC}"
+        echo -e "${color}├${hline}┤${NC}"
     fi
     
     while IFS= read -r line; do
         local line_length=${#line}
-        local padding=$((width - line_length - 3))
-        echo -e "${color}│${NC} $line$(printf ' %.0s' $(seq 1 $padding))${color}│${NC}"
+        local padding_needed=$((width - line_length - 3))
+        local padding=""
+        for ((i=0; i<padding_needed; i++)); do
+            padding="${padding} "
+        done
+        echo -e "${color}│${NC} $line${padding}${color}│${NC}"
     done <<< "$content"
     
-    echo -e "${color}└$(printf '─%.0s' $(seq 1 $((width-2))))┘${NC}"
+    echo -e "${color}└${hline}┘${NC}"
 }
 
 # ============================================================================
@@ -1427,7 +1472,7 @@ show_uninstall_menu() {
     local selected_index=0
     local components=("server" "client" "nginx" "database" "logs" "config" "complete")
     
-    declare -A UNINSTALL_OPTIONS=(
+    declare -gA UNINSTALL_OPTIONS=(
         ["server"]=true
         ["client"]=true
         ["nginx"]=true
@@ -1511,6 +1556,12 @@ show_uninstall_menu() {
 }
 
 perform_selective_uninstall() {
+    # Check if UNINSTALL_OPTIONS is defined
+    if [ -z "${UNINSTALL_OPTIONS+x}" ]; then
+        echo "Error: UNINSTALL_OPTIONS not defined"
+        exit 1
+    fi
+    
     print_banner
     print_section "Uninstallation Process" "$RED"
     
