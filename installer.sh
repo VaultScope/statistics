@@ -1,8 +1,9 @@
 #!/bin/bash
 
-# VaultScope Statistics Installer v11.0
-# Enhanced UI with animations, selective uninstall, and recovery mode
-# Production-ready with comprehensive error handling
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║                     VaultScope Statistics Installer v4.0.5                      ║
+# ║                          Modern Interactive Installation                        ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
 
 set +e  # Don't exit on errors - we handle them properly
 
@@ -45,7 +46,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --help|-h)
-            echo "VaultScope Statistics Installer v11.0"
+            echo "VaultScope Statistics Installer v4.0.5"
             echo ""
             echo "Usage: $0 [OPTIONS]"
             echo ""
@@ -79,7 +80,7 @@ NODE_VERSION="20"
 BRANCH="dev"
 
 # State tracking
-INSTALLER_VERSION="11.0"
+INSTALLER_VERSION="4.0.5"
 INSTALLER_PID=$$
 LOG_FILE="/tmp/vaultscope_install_$(date +%Y%m%d_%H%M%S).log"
 PROGRESS_CURRENT=0
@@ -192,32 +193,34 @@ center_text() {
 
 print_banner() {
     clear
-    local banner_width=80
     local mode_text=""
+    local color=""
     
     if [[ "$UNINSTALL_MODE" == true ]]; then
-        mode_text="UNINSTALLER"
-        local color=$RED
+        mode_text="UNINSTALL MODE"
+        color=$RED
     elif [[ "$RECOVERY_MODE" == true ]]; then
         mode_text="RECOVERY MODE"
-        local color=$YELLOW
+        color=$YELLOW
     else
-        mode_text="INSTALLER"
-        local color=$CYAN
+        mode_text="INSTALLATION"
+        color=$CYAN
     fi
     
-    # Animated header
-    echo -e "${color}╔══════════════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${color}║${NC}                                                                              ${color}║${NC}"
-    echo -e "${color}║${NC}  ${BOLD}${WHITE}█▀▀▀▀▀█ █▀▀▀▀▀█ █▀▀▀▀▀█ █▀▀▀▀▀█ █▀▀▀▀▀█ █▀▀▀▀▀█ █▀▀▀▀▀█ █▀▀▀▀▀█${NC}  ${color}║${NC}"
-    echo -e "${color}║${NC}  ${BOLD}${WHITE}█ ███ █ █ ███ █ █ ███ █ █ ███ █ █ ███ █ █ ███ █ █ ███ █ █ ███ █${NC}  ${color}║${NC}"
-    echo -e "${color}║${NC}  ${BOLD}${WHITE}█ ███ █ █ ███ █ █ ███ █ █ ███ █ █ ███ █ █ ███ █ █ ███ █ █ ███ █${NC}  ${color}║${NC}"
-    echo -e "${color}║${NC}  ${BOLD}${WHITE}█▄▄▄▄▄█ █▄▄▄▄▄█ █▄▄▄▄▄█ █▄▄▄▄▄█ █▄▄▄▄▄█ █▄▄▄▄▄█ █▄▄▄▄▄█ █▄▄▄▄▄█${NC}  ${color}║${NC}"
-    echo -e "${color}║${NC}                                                                              ${color}║${NC}"
-    echo -e "${color}║${NC}         ${BOLD}${WHITE}VAULTSCOPE STATISTICS${NC} ${color}━${NC} ${BOLD}${color}$mode_text${NC}                     ${color}║${NC}"
-    echo -e "${color}║${NC}                  ${DIM}Enterprise System Monitoring v${INSTALLER_VERSION}${NC}                       ${color}║${NC}"
-    echo -e "${color}║${NC}                                                                              ${color}║${NC}"
-    echo -e "${color}╚══════════════════════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "${color}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "${BOLD}${CYAN}     ██╗   ██╗ █████╗ ██╗   ██╗██╗  ████████╗███████╗ ██████╗ ██████╗ ██████╗ ███████╗${NC}"
+    echo -e "${BOLD}${CYAN}     ██║   ██║██╔══██╗██║   ██║██║  ╚══██╔══╝██╔════╝██╔════╝██╔═══██╗██╔══██╗██╔════╝${NC}"
+    echo -e "${BOLD}${BRIGHT_CYAN}     ██║   ██║███████║██║   ██║██║     ██║   ███████╗██║     ██║   ██║██████╔╝█████╗  ${NC}"
+    echo -e "${BOLD}${CYAN}     ╚██╗ ██╔╝██╔══██║██║   ██║██║     ██║   ╚════██║██║     ██║   ██║██╔═══╝ ██╔══╝  ${NC}"
+    echo -e "${BOLD}${CYAN}      ╚████╔╝ ██║  ██║╚██████╔╝███████╗██║   ███████║╚██████╗╚██████╔╝██║     ███████╗${NC}"
+    echo -e "${BOLD}${CYAN}       ╚═══╝  ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝   ╚══════╝ ╚═════╝ ╚═════╝ ╚═╝     ╚══════╝${NC}"
+    echo ""
+    echo -e "                     ${BOLD}${WHITE}STATISTICS MONITORING SYSTEM${NC} ${DIM}v${INSTALLER_VERSION}${NC}"
+    echo -e "                              ${BOLD}${color}[ $mode_text ]${NC}"
+    echo ""
+    echo -e "${color}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
 }
 
@@ -225,9 +228,9 @@ print_section() {
     local title="$1"
     local color="${2:-$BLUE}"
     echo ""
-    echo -e "${color}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${BOLD}${WHITE}  $(center_text "$title" 76)${NC}"
-    echo -e "${color}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${color}════════════════════════════════════════════════════════════════════════════════${NC}"
+    echo -e "  ${BOLD}${WHITE}$title${NC}"
+    echo -e "${color}════════════════════════════════════════════════════════════════════════════════${NC}"
 }
 
 print_subsection() {
@@ -244,13 +247,30 @@ print_progress_bar() {
     local filled=$((width * current / total))
     local empty=$((width - filled))
     
-    printf "\r  ${CYAN}Progress:${NC} ["
-    printf "%${filled}s" | tr ' ' '█'
-    printf "%${empty}s" | tr ' ' '▒'
-    printf "] ${BOLD}%3d%%${NC}" $percentage
+    printf "\r  "
     
+    # Progress bar
+    printf "${CYAN}["
+    for ((i=0; i<filled; i++)); do
+        printf "${GREEN}█"
+    done
+    for ((i=0; i<empty; i++)); do
+        printf "${DIM}░"
+    done
+    printf "${CYAN}]${NC}"
+    
+    # Percentage with color based on progress
+    if [ $percentage -lt 33 ]; then
+        printf " ${YELLOW}%3d%%${NC}" $percentage
+    elif [ $percentage -lt 66 ]; then
+        printf " ${CYAN}%3d%%${NC}" $percentage
+    else
+        printf " ${GREEN}%3d%%${NC}" $percentage
+    fi
+    
+    # Status text
     if [ $current -eq $total ]; then
-        echo ""
+        printf " ${GREEN}✓ Complete${NC}\n"
     fi
 }
 
@@ -498,7 +518,9 @@ show_installation_menu() {
         print_banner
         print_section "Installation Configuration" "$CYAN"
         echo ""
-        echo -e "${BOLD}  Select components to install (use arrow keys to navigate):${NC}"
+        echo -e "  ${BOLD}${CYAN}Select components to install:${NC}"
+        echo ""
+        echo -e "  ${DIM}Use ↑/↓ arrows or j/k to navigate, SPACE to toggle, ENTER to proceed${NC}"
         echo ""
         
         for i in "${!options_array[@]}"; do
@@ -508,22 +530,22 @@ show_installation_menu() {
             
             if [ $i -eq $selected_index ]; then
                 if [ "$checked" = true ]; then
-                    echo -e "${REVERSE}  ${GREEN}[${CHECK}]${NC}${REVERSE} ${key^^} - ${desc}${NC}"
+                    echo -e "  ${CYAN}▶${NC} ${GREEN}[✓]${NC} ${BOLD}${WHITE}${key^^}${NC} - ${desc}"
                 else
-                    echo -e "${REVERSE}  ${GRAY}[ ]${NC}${REVERSE} ${key^^} - ${desc}${NC}"
+                    echo -e "  ${CYAN}▶${NC} ${DIM}[ ]${NC} ${BOLD}${WHITE}${key^^}${NC} - ${DIM}${desc}${NC}"
                 fi
             else
                 if [ "$checked" = true ]; then
-                    echo -e "  ${GREEN}[${CHECK}]${NC} ${key^^} - ${desc}"
+                    echo -e "    ${GREEN}[✓]${NC} ${key^^} - ${desc}"
                 else
-                    echo -e "  ${GRAY}[ ]${NC} ${key^^} - ${desc}"
+                    echo -e "    ${DIM}[ ]${NC} ${DIM}${key^^} - ${desc}${NC}"
                 fi
             fi
         done
         
         echo ""
-        echo -e "${GRAY}────────────────────────────────────────────────────────────────${NC}"
-        echo -e "  ${BOLD}[SPACE]${NC} Toggle  ${BOLD}[A]${NC} All  ${BOLD}[N]${NC} None  ${BOLD}[P]${NC} Proceed  ${BOLD}[Q]${NC} Quit"
+        echo -e "  ${DIM}────────────────────────────────────────────────────────────────${NC}"
+        echo -e "  ${BOLD}[SPACE]${NC} Toggle  ${BOLD}[A]${NC} All  ${BOLD}[N]${NC} None  ${BOLD}[ENTER]${NC} Proceed  ${BOLD}[Q]${NC} Quit"
         echo ""
         
         # Read single character
@@ -1767,10 +1789,12 @@ All components are functioning correctly." "$GREEN"
 # ============================================================================
 show_completion() {
     print_banner
-    print_section "Installation Complete!" "$GREEN"
-    
     echo ""
-    animated_print "${GREEN}${SPARKLES} VaultScope Statistics has been successfully installed! ${SPARKLES}${NC}" 0.03
+    echo -e "${GREEN}════════════════════════════════════════════════════════════════════════════════${NC}"
+    echo -e "  ${BOLD}${GREEN}✓ Installation Complete!${NC}"
+    echo -e "${GREEN}════════════════════════════════════════════════════════════════════════════════${NC}"
+    echo ""
+    echo -e "  ${GREEN}✨${NC} ${BOLD}VaultScope Statistics has been successfully installed!${NC} ${GREEN}✨${NC}"
     echo ""
     
     # Access Information
