@@ -4,7 +4,7 @@ import { debounce, throttle } from '../utils/performance';
 // Custom hook for optimized state management
 export function useOptimizedState<T>(initialValue: T, delay = 0) {
   const [state, setState] = useState<T>(initialValue);
-  const timeoutRef = useRef<NodeJS.Timeout>();
+  const timeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
   const setOptimizedState = useCallback((newValue: T | ((prev: T) => T)) => {
     if (timeoutRef.current) {
@@ -132,7 +132,7 @@ export function useMemoizedComputation<T>(
   compute: () => T,
   deps: React.DependencyList
 ): T {
-  const computationRef = useRef<{ value: T; deps: React.DependencyList }>();
+  const computationRef = useRef<{ value: T; deps: React.DependencyList } | undefined>(undefined);
 
   if (
     !computationRef.current ||

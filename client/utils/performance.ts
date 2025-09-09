@@ -49,7 +49,9 @@ export function memoize<T extends (...args: any[]) => any>(
     // Limit cache size
     if (cache.size > 100) {
       const firstKey = cache.keys().next().value;
-      cache.delete(firstKey);
+      if (firstKey !== undefined) {
+        cache.delete(firstKey);
+      }
     }
     
     return result;
@@ -135,8 +137,8 @@ export function lazyImport<T extends React.ComponentType<any>>(
 }
 
 // Performance observer
-export class PerformanceObserver {
-  private observer?: PerformanceObserver;
+export class PerformanceMonitor {
+  private observer?: globalThis.PerformanceObserver;
   private metrics: Map<string, number[]> = new Map();
 
   start() {
@@ -150,7 +152,9 @@ export class PerformanceObserver {
       }
     });
 
-    this.observer.observe({ entryTypes: ['measure', 'navigation'] });
+    if (this.observer) {
+      this.observer.observe({ entryTypes: ['measure', 'navigation'] });
+    }
   }
 
   private recordMetric(name: string, value: number) {
@@ -170,15 +174,15 @@ export class PerformanceObserver {
   getMetrics() {
     const result: Record<string, { avg: number; min: number; max: number }> = {};
     
-    for (const [name, values] of this.metrics.entries()) {
+    this.metrics.forEach((values, name) => {
       if (values.length > 0) {
         result[name] = {
-          avg: values.reduce((a, b) => a + b, 0) / values.length,
+          avg: values.reduce((a: number, b: number) => a + b, 0) / values.length,
           min: Math.min(...values),
           max: Math.max(...values)
         };
       }
-    }
+    });
     
     return result;
   }
