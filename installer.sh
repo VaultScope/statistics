@@ -289,6 +289,12 @@ install_nodejs() {
 clone_repository() {
     print_header "Cloning Repository"
     
+    # Add directory to Git safe list to prevent ownership issues
+    if [[ -d "$INSTALL_DIR/.git" ]]; then
+        info "Adding $INSTALL_DIR to Git safe directories..."
+        git config --global --add safe.directory "$INSTALL_DIR"
+    fi
+    
     if [[ -d "$INSTALL_DIR/.git" ]]; then
         info "Repository already exists, pulling latest changes..."
         cd "$INSTALL_DIR"
@@ -309,6 +315,10 @@ clone_repository() {
         fi
         
         git clone -b "$BRANCH" "$REPO_URL" "$INSTALL_DIR"
+        
+        # Add the newly cloned directory to Git safe list
+        info "Adding $INSTALL_DIR to Git safe directories..."
+        git config --global --add safe.directory "$INSTALL_DIR"
     fi
     
     cd "$INSTALL_DIR"
