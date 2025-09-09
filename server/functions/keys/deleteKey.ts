@@ -1,4 +1,4 @@
-import { apiKeyRepository } from "../../db/repositories/apiKeyRepository";
+import { apiKeyRepository } from "../../db/repositories/apiKeyRepositoryMock";
 
 export async function deleteApiKey(identifier: string): Promise<boolean> {
     try {
