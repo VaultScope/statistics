@@ -3,6 +3,7 @@ import { Strategy as LocalStrategy } from 'passport-local';
 import LdapStrategy from 'passport-ldapauth';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import { Strategy as GitHubStrategy } from 'passport-github2';
+// @ts-ignore
 import { OIDCStrategy } from 'passport-azure-ad';
 import bcrypt from 'bcryptjs';
 import { userRepository } from '../../db/repositories/userRepository';
@@ -71,15 +72,15 @@ if (process.env.LDAP_URL) {
   const ldapOptions = {
     server: {
       url: process.env.LDAP_URL,
-      bindDN: process.env.LDAP_BIND_DN,
-      bindCredentials: process.env.LDAP_BIND_PASSWORD,
-      searchBase: process.env.LDAP_SEARCH_BASE,
+      bindDN: process.env.LDAP_BIND_DN || '',
+      bindCredentials: process.env.LDAP_BIND_PASSWORD || '',
+      searchBase: process.env.LDAP_SEARCH_BASE || 'dc=example,dc=com',
       searchFilter: process.env.LDAP_SEARCH_FILTER || '(uid={{username}})',
       searchAttributes: ['displayName', 'mail', 'memberOf', 'uid', 'cn']
     }
   };
 
-  passport.use(new LdapStrategy(ldapOptions, async (user: any, done) => {
+  passport.use(new LdapStrategy(ldapOptions, async (user: any, done: any) => {
     try {
       // Check if user exists in database
       let dbUser = await userRepository.getUserByUsername(user.uid || user.cn);

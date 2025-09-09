@@ -1,9 +1,9 @@
 import nodemailer from 'nodemailer';
 import { IncomingWebhook } from '@slack/webhook';
 import { db } from '../../db/index';
-import { alerts, alertRules, alertHistory } from '../../db/schema/alerts';
+import { alerts, alertHistory } from '../../db/schema/alerts';
 import { eq, and, gte, lte, or } from 'drizzle-orm';
-import { influxDB } from '../influxdb';
+import influxDB from '../influxdb';
 import axios from 'axios';
 
 interface AlertRule {

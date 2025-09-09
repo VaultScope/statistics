@@ -245,7 +245,7 @@ export class PrometheusExporter {
               container: container.name,
               image: container.image
             },
-            container.cpu || 0
+            (container as any).cpuPercent || (container as any).cpu || 0
           );
           this.metrics.get('container_memory').set(
             {
@@ -253,7 +253,7 @@ export class PrometheusExporter {
               container: container.name,
               image: container.image
             },
-            container.mem || 0
+            (container as any).memUsage || (container as any).mem || 0
           );
         });
       } catch (error) {
