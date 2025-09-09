@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, X, Check, Folder, Server, Code, Flask, Database, Activity, Shield, Cloud, Cpu, HardDrive } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, Check, Folder, Server, Code, TestTube, Database, Activity, Shield, Cloud, Cpu, HardDrive } from 'lucide-react';
 
 interface Category {
   id: number;
@@ -15,7 +15,7 @@ const AVAILABLE_ICONS = [
   { name: 'folder', icon: Folder, label: 'Folder' },
   { name: 'server', icon: Server, label: 'Server' },
   { name: 'code', icon: Code, label: 'Code' },
-  { name: 'flask', icon: Flask, label: 'Testing' },
+  { name: 'flask', icon: TestTube, label: 'Testing' },
   { name: 'database', icon: Database, label: 'Database' },
   { name: 'activity', icon: Activity, label: 'Activity' },
   { name: 'shield', icon: Shield, label: 'Security' },
