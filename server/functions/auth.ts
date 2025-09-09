@@ -44,7 +44,7 @@ function authenticate(requiredPermissions?: (keyof Permissions)[]) {
                 statusCode,
                 (req.headers["x-forwarded-for"] as string) || req.ip || "unknown",
                 req.headers["user-agent"] as string | undefined,
-                req.requestStartTime ? Date.now() - req.requestStartTime : 0
+                req.requestStartTime ? Date.now() - req.requestStartTime! : 0
             );
 
             return res.status(statusCode).json({
@@ -66,7 +66,7 @@ function authenticate(requiredPermissions?: (keyof Permissions)[]) {
                 statusCode,
                 (req.headers["x-forwarded-for"] as string) || req.ip || "unknown",
                 req.headers["user-agent"] as string | undefined,
-                req.requestStartTime ? Date.now() - req.requestStartTime : 0
+                req.requestStartTime ? Date.now() - req.requestStartTime! : 0
             );
 
             return res.status(statusCode).json({
@@ -84,7 +84,7 @@ function authenticate(requiredPermissions?: (keyof Permissions)[]) {
             createdAt: new Date(validatedKey!.createdAt)
         };
 
-        if (requiredPermissions && requiredPermissions.length > 0) {
+        if (requiredPermissions && requiredPermissions!.length > 0) {
             const missingPermissions = requiredPermissions!.filter(
                 (perm) => !foundKey.permissions[perm]
             );
@@ -99,7 +99,7 @@ function authenticate(requiredPermissions?: (keyof Permissions)[]) {
                     statusCode,
                     (req.headers["x-forwarded-for"] as string) || req.ip || "unknown",
                     req.headers["user-agent"],
-                    Date.now() - req.requestStartTime
+                    req.requestStartTime ? Date.now() - req.requestStartTime! : 0
                 );
 
                 return res.status(statusCode).json({
@@ -123,7 +123,7 @@ function authenticate(requiredPermissions?: (keyof Permissions)[]) {
                 res.statusCode,
                 (req.headers["x-forwarded-for"] as string) || req.ip || "unknown",
                 req.headers["user-agent"] as string | undefined,
-                req.requestStartTime ? Date.now() - req.requestStartTime : 0
+                req.requestStartTime ? Date.now() - req.requestStartTime! : 0
             );
         });
 

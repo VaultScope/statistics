@@ -27,8 +27,6 @@ const invalidKeyLimiter = rateLimit({
 
 // Main rate limiting middleware that checks for API key validity
 const limiter = async (req: Request, res: Response, next: NextFunction) => {
-  // TEMPORARILY DISABLED FOR TESTING - remove this line to re-enable
-  return next();
   
   // Extract API key from headers or query
   const apiKey: string = req.headers['x-api-key'] as string || 
