@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # ============================================================================
-# VaultScope Statistics Installer v6.0.0
-# Fixed terminal input handling and server startup
+# VaultScope Statistics Installer v7.0.0
+# Actually working installer that handles all the bullshit
 # ============================================================================
 
 set -euo pipefail
@@ -11,7 +11,7 @@ IFS=$'\n\t'
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-readonly INSTALLER_VERSION="6.1.0"
+readonly INSTALLER_VERSION="7.0.0"
 readonly INSTALL_DIR="/var/www/vaultscope-statistics"
 readonly CONFIG_DIR="/etc/vaultscope-statistics"
 readonly LOG_DIR="/var/log/vaultscope-statistics"
@@ -81,7 +81,7 @@ confirm() {
     local prompt="${1:-Continue?}"
     echo -n "$prompt [y/N]: "
     
-    # Read from terminal if available, otherwise assume no
+    # Read from terminal
     if [[ -t 0 ]]; then
         read -n 1 -r response
     else
@@ -177,21 +177,18 @@ install_nodejs() {
 clone_repository() {
     print_header "Cloning Repository"
     
-    if [[ -d "$INSTALL_DIR/.git" ]]; then
-        info "Repository exists, updating..."
-        cd "$INSTALL_DIR"
-        git config --global --add safe.directory "$INSTALL_DIR"
-        git fetch origin
-        git checkout "$BRANCH"
-        git pull origin "$BRANCH"
-    else
-        info "Cloning repository from $REPO_URL..."
+    # Always clean clone to avoid git conflicts
+    if [[ -d "$INSTALL_DIR" ]]; then
+        info "Removing existing installation..."
         rm -rf "$INSTALL_DIR"
-        git clone -b "$BRANCH" "$REPO_URL" "$INSTALL_DIR"
-        cd "$INSTALL_DIR"
-        info "Adding $INSTALL_DIR to Git safe directories..."
-        git config --global --add safe.directory "$INSTALL_DIR"
     fi
+    
+    info "Cloning fresh repository from $REPO_URL..."
+    git clone -b "$BRANCH" "$REPO_URL" "$INSTALL_DIR"
+    cd "$INSTALL_DIR"
+    
+    # Mark as safe directory
+    git config --global --add safe.directory "$INSTALL_DIR"
     
     success "Repository ready at $INSTALL_DIR"
 }
@@ -201,7 +198,7 @@ install_dependencies() {
     
     cd "$INSTALL_DIR"
     
-    info "Installing server dependencies (this may take a few minutes)..."
+    info "Installing server dependencies..."
     npm install 2>&1 | tee -a "$LOG_FILE"
     
     info "Installing TypeScript runtime..."
@@ -212,8 +209,14 @@ install_dependencies() {
         info "Installing client dependencies..."
         npm install 2>&1 | tee -a "$LOG_FILE"
         
-        # Install critters to fix the build error
+        # Install missing dependencies for Next.js
         npm install --save-dev critters 2>&1 | tee -a "$LOG_FILE"
+        
+        # Fix Next.js config
+        if [[ -f "next.config.js" ]]; then
+            sed -i '/swcMinify/d' next.config.js
+        fi
+        
         cd ..
     fi
     
@@ -225,16 +228,8 @@ build_application() {
     
     cd "$INSTALL_DIR"
     
-    # Check available memory
-    local available_mem=$(free -m | awk 'NR==2{print $7}')
-    local node_mem_limit=2048
-    
-    if [[ $available_mem -lt 1024 ]]; then
-        warning "Low memory detected (${available_mem}MB available)"
-        node_mem_limit=1024
-    fi
-    
-    export NODE_OPTIONS="--max-old-space-size=${node_mem_limit}"
+    # Set memory limit
+    export NODE_OPTIONS="--max-old-space-size=2048"
     
     info "Building server..."
     npm run build 2>&1 | tee -a "$LOG_FILE" || {
@@ -246,11 +241,6 @@ build_application() {
     if [[ -d "client" ]] && [[ -f "client/package.json" ]]; then
         info "Building client interface..."
         cd client
-        
-        # Remove deprecated option from next.config.js
-        if [[ -f "next.config.js" ]]; then
-            sed -i '/swcMinify/d' next.config.js
-        fi
         
         export NODE_OPTIONS="--max-old-space-size=4096"
         npm run build 2>&1 | tee -a "$LOG_FILE" || {
@@ -268,30 +258,33 @@ initialize_database() {
     
     cd "$INSTALL_DIR"
     
-    info "Running database initialization..."
+    info "Creating database..."
+    
+    # Run database initialization and capture output
     if [[ -f "dist/server/services/databaseInitializer.js" ]]; then
         node dist/server/services/databaseInitializer.js 2>&1 | tee -a "$LOG_FILE"
     else
         npx ts-node server/services/databaseInitializer.ts 2>&1 | tee -a "$LOG_FILE"
     fi
     
+    # Set proper permissions
+    if [[ -f "$INSTALL_DIR/database.db" ]]; then
+        chown www-data:www-data "$INSTALL_DIR/database.db"
+        chmod 644 "$INSTALL_DIR/database.db"
+    fi
+    
     success "Database initialized"
-    info "Check the output above for admin API key"
+    warning "SAVE THE ADMIN API KEY SHOWN ABOVE!"
 }
 
 create_systemd_service() {
     print_header "Creating Systemd Services"
     
-    # Set proper permissions
+    # Set proper permissions for everything
     chown -R www-data:www-data "$INSTALL_DIR"
     chmod -R 755 "$INSTALL_DIR"
     chown -R www-data:www-data "$LOG_DIR"
-    
-    # Ensure database has correct permissions
-    if [[ -f "$INSTALL_DIR/database.db" ]]; then
-        chown www-data:www-data "$INSTALL_DIR/database.db"
-        chmod 644 "$INSTALL_DIR/database.db"
-    fi
+    chmod -R 755 "$LOG_DIR"
     
     # Determine execution mode
     local exec_command=""
@@ -300,10 +293,10 @@ create_systemd_service() {
         exec_command="/usr/bin/node $INSTALL_DIR/dist/server/index.js"
     else
         info "Creating server service in development mode..."
-        exec_command="/usr/bin/npx ts-node $INSTALL_DIR/server/index.ts"
+        exec_command="cd $INSTALL_DIR && /usr/bin/npx ts-node server/index.ts"
     fi
     
-    # Server service
+    # Create server service that actually works
     cat > /etc/systemd/system/vaultscope-statistics-server.service << EOF
 [Unit]
 Description=VaultScope Statistics Server
@@ -318,7 +311,7 @@ Environment="NODE_ENV=production"
 Environment="PORT=4000"
 Environment="NODE_OPTIONS=--max-old-space-size=2048"
 Environment="PATH=/usr/bin:/usr/local/bin:/usr/local/lib/nodejs/node-v20.18.2-linux-x64/bin"
-ExecStart=$exec_command
+ExecStart=/bin/bash -c '$exec_command'
 Restart=always
 RestartSec=10
 StandardOutput=append:$LOG_DIR/server.log
@@ -328,7 +321,7 @@ StandardError=append:$LOG_DIR/server-error.log
 WantedBy=multi-user.target
 EOF
     
-    # Client service (only if build succeeded)
+    # Client service only if build succeeded
     if [[ -d "$INSTALL_DIR/client/.next" ]] && [[ ! -f "$INSTALL_DIR/.client-build-failed" ]]; then
         info "Creating client service..."
         cat > /etc/systemd/system/vaultscope-statistics-client.service << EOF
@@ -366,10 +359,15 @@ EOF
 start_services() {
     print_header "Starting Services"
     
-    info "Starting server..."
-    systemctl restart vaultscope-statistics-server
+    # Stop any existing services first
+    systemctl stop vaultscope-statistics-server 2>/dev/null || true
+    systemctl stop vaultscope-statistics-client 2>/dev/null || true
     
-    sleep 5
+    info "Starting server..."
+    systemctl start vaultscope-statistics-server
+    
+    # Wait for server to actually start
+    sleep 10
     
     if systemctl is-active --quiet vaultscope-statistics-server; then
         success "Server is running"
@@ -379,24 +377,33 @@ start_services() {
             success "Server API is responding correctly"
         else
             warning "Server is running but API health check failed"
-            info "Server logs:"
-            journalctl -u vaultscope-statistics-server -n 20 --no-pager
+            info "Checking server logs..."
+            tail -n 50 "$LOG_DIR/server-error.log" 2>/dev/null || journalctl -u vaultscope-statistics-server -n 50 --no-pager
         fi
     else
         error "Server failed to start"
         info "Server logs:"
-        journalctl -u vaultscope-statistics-server -n 50 --no-pager
+        tail -n 100 "$LOG_DIR/server-error.log" 2>/dev/null || journalctl -u vaultscope-statistics-server -n 100 --no-pager
+        
+        # Try to run manually to see the actual error
+        info "Trying to run server manually to diagnose..."
+        cd "$INSTALL_DIR"
+        if [[ -f "dist/server/index.js" ]]; then
+            timeout 5 node dist/server/index.js 2>&1 || true
+        else
+            timeout 5 npx ts-node server/index.ts 2>&1 || true
+        fi
     fi
     
     if [[ -f /etc/systemd/system/vaultscope-statistics-client.service ]]; then
         info "Starting client..."
-        systemctl restart vaultscope-statistics-client
-        sleep 3
+        systemctl start vaultscope-statistics-client
+        sleep 5
         
         if systemctl is-active --quiet vaultscope-statistics-client; then
             success "Client is running"
         else
-            warning "Client failed to start"
+            warning "Client failed to start (this is optional)"
         fi
     fi
     
@@ -412,7 +419,7 @@ configure_nginx() {
         apt-get install -y nginx
     fi
     
-    # Ask for domains using terminal input
+    # Ask for domains - ALWAYS interactive
     local api_domain=""
     local app_domain=""
     
@@ -425,11 +432,13 @@ configure_nginx() {
         read api_domain < /dev/tty || true
     fi
     
-    echo -n "Enter domain for Web App (e.g., app.example.com) or press Enter to skip: "
-    if [[ -t 0 ]]; then
-        read app_domain
-    else
-        read app_domain < /dev/tty || true
+    if [[ -d "$INSTALL_DIR/client/.next" ]]; then
+        echo -n "Enter domain for Web App (e.g., app.example.com) or press Enter to skip: "
+        if [[ -t 0 ]]; then
+            read app_domain
+        else
+            read app_domain < /dev/tty || true
+        fi
     fi
     
     # Configure API domain
@@ -450,6 +459,10 @@ server {
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_cache_bypass \$http_upgrade;
+        client_max_body_size 100M;
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
     }
 }
 EOF
@@ -458,7 +471,7 @@ EOF
     fi
     
     # Configure App domain
-    if [[ -n "$app_domain" ]] && [[ -d "$INSTALL_DIR/client" ]]; then
+    if [[ -n "$app_domain" ]]; then
         info "Configuring Nginx for Web App: $app_domain"
         cat > /etc/nginx/sites-available/vaultscope-app << EOF
 server {
@@ -516,7 +529,7 @@ configure_ssl() {
         return
     fi
     
-    # Ask for email
+    # Ask for email - ALWAYS interactive
     local email=""
     echo -n "Enter email for SSL notifications (or press Enter to skip): "
     if [[ -t 0 ]]; then
@@ -592,26 +605,49 @@ uninstall_application() {
 show_summary() {
     print_header "Installation Summary"
     
-    echo "✓ VaultScope Statistics has been successfully installed!"
+    echo "✓ VaultScope Statistics Installation Complete!"
     echo ""
     echo "Installation Details:"
     echo "  • Location: $INSTALL_DIR"
     echo "  • Logs: $LOG_DIR"
     echo "  • Config: $CONFIG_DIR"
     echo ""
-    echo "Services:"
-    echo "  • Server: http://localhost:4000"
+    
+    # Check actual service status
+    echo "Service Status:"
+    if systemctl is-active --quiet vaultscope-statistics-server; then
+        echo "  • Server: ${GREEN}Running${NC} on http://localhost:4000"
+    else
+        echo "  • Server: ${RED}Not Running${NC}"
+    fi
     
     if [[ -f /etc/systemd/system/vaultscope-statistics-client.service ]]; then
-        echo "  • Client: http://localhost:4001"
+        if systemctl is-active --quiet vaultscope-statistics-client; then
+            echo "  • Client: ${GREEN}Running${NC} on http://localhost:4001"
+        else
+            echo "  • Client: ${YELLOW}Not Running${NC}"
+        fi
     fi
     
     echo ""
     echo "Useful Commands:"
     echo "  • Check status: systemctl status vaultscope-statistics-server"
     echo "  • View logs: journalctl -u vaultscope-statistics-server -f"
+    echo "  • Server logs: tail -f $LOG_DIR/server-error.log"
     echo "  • Restart: systemctl restart vaultscope-statistics-server"
-    echo "  • API keys: cd $INSTALL_DIR && npm run apikey list"
+    echo "  • API keys: cd $INSTALL_DIR && npm run apikey"
+    echo ""
+    
+    if [[ -f "$STATE_DIR/api_domain" ]]; then
+        local api_domain=$(cat "$STATE_DIR/api_domain")
+        [[ -n "$api_domain" ]] && echo "  • API URL: https://$api_domain"
+    fi
+    
+    if [[ -f "$STATE_DIR/app_domain" ]]; then
+        local app_domain=$(cat "$STATE_DIR/app_domain")
+        [[ -n "$app_domain" ]] && echo "  • App URL: https://$app_domain"
+    fi
+    
     echo ""
     success "Installation complete!"
 }
@@ -647,16 +683,16 @@ Usage: $0 [OPTIONS]
 
 Options:
   -u, --uninstall     Uninstall VaultScope Statistics
-  -q, --quiet         Suppress output (skips Nginx/SSL config)
-  -y, --yes           Auto-answer yes to installation prompts
-                      (still asks for Nginx/SSL configuration)
+  -q, --quiet         Suppress output (skips Nginx/SSL)
+  -y, --yes           Auto-answer yes to installation only
+                      (Nginx/SSL prompts still appear)
   --skip-deps         Skip system dependencies
   -b, --branch BRANCH Use specific git branch
   -h, --help          Show this help
 
 Examples:
   $0                  Interactive installation
-  $0 --yes            Automatic installation
+  $0 --yes            Auto-install with Nginx prompts
   $0 --uninstall      Remove installation
   $0 --branch dev     Install from dev branch
 
@@ -698,6 +734,8 @@ main() {
         echo "  6. Initialize the database"
         echo "  7. Create systemd services"
         echo "  8. Start the services"
+        echo "  9. Configure Nginx (optional)"
+        echo " 10. Configure SSL (optional)"
         echo ""
         
         if ! confirm "Do you want to proceed with installation?"; then
@@ -706,6 +744,7 @@ main() {
         fi
     fi
     
+    # Core installation
     create_directories
     install_system_packages
     install_nodejs
@@ -716,11 +755,11 @@ main() {
     create_systemd_service
     start_services
     
-    # ALWAYS ask for Nginx configuration, even with --yes flag
+    # ALWAYS ask for Nginx/SSL configuration
     if [[ "$QUIET_MODE" != true ]]; then
         echo ""
-        echo "========================================"
-        echo "Nginx & SSL Configuration"
+        echo "========================================" 
+        echo "Optional: Nginx & SSL Configuration"
         echo "========================================"
         echo ""
         echo -n "Do you want to configure Nginx reverse proxy? [y/N]: "
