@@ -15,6 +15,7 @@ import alertEngine from "./services/alertEngine";
 import { compressionMiddleware } from "./middleware/compression";
 import { performanceMiddleware, performanceMonitor } from "./middleware/performance";
 import config, { validateConfig } from "./config/environment";
+import databaseInitializer from "./services/databaseInitializer";
 
 // Validate configuration on startup
 try {
@@ -775,18 +776,56 @@ app.delete("/network/sniffer/logs", authenticate(["viewStats"]), (req: AuthReque
   res.status(200).json({ message: "All network logs cleared" });
 });
 
-app.listen(port, () => {
-    console.log(`${colors.bgGreen}${colors.bright} SERVER STARTED ${colors.reset}`);
-    console.log(`${colors.cyan}[SERVER]${colors.reset} Running at ${colors.bright}http://localhost:${port}${colors.reset}`);
-    console.log(`${colors.yellow}[INFO]${colors.reset} Trust proxy: ${config.server.trustProxy} | CORS: enabled | Rate limiting: active`);
-    console.log(`${colors.blue}[PERF]${colors.reset} Compression: enabled | Performance monitoring: active`);
-    console.log(`${colors.green}[SECURITY]${colors.reset} Security headers enabled | CORS origin: ${config.security.corsOrigin}`);
-    
-    // Start the alert engine
-    alertEngine.start();
-    console.log(`${colors.green}[ALERTS]${colors.reset} Alert engine started - monitoring active`);
-    
-    // Start memory leak detection
-    performanceMonitor.detectMemoryLeaks();
-    console.log(`${colors.magenta}[MONITOR]${colors.reset} Memory leak detection: enabled`);
-});
+// Initialize database before starting server
+async function startServer() {
+    try {
+        // Initialize database
+        console.log(`${colors.cyan}[STARTUP]${colors.reset} Initializing database...`);
+        const dbResult = await databaseInitializer.initialize();
+        
+        if (!dbResult.success) {
+            console.error(`${colors.bgRed}${colors.bright} DATABASE INITIALIZATION FAILED ${colors.reset}`);
+            console.error(`${colors.red}[ERROR]${colors.reset} ${dbResult.message}`);
+            process.exit(1);
+        }
+        
+        // Check database health
+        const isHealthy = await databaseInitializer.checkHealth();
+        if (!isHealthy) {
+            console.error(`${colors.bgRed}${colors.bright} DATABASE HEALTH CHECK FAILED ${colors.reset}`);
+            console.error(`${colors.red}[ERROR]${colors.reset} Database is not responding properly`);
+            process.exit(1);
+        }
+        
+        // Start the server
+        app.listen(port, () => {
+            console.log(`${colors.bgGreen}${colors.bright} SERVER STARTED ${colors.reset}`);
+            console.log(`${colors.cyan}[SERVER]${colors.reset} Running at ${colors.bright}http://localhost:${port}${colors.reset}`);
+            console.log(`${colors.yellow}[INFO]${colors.reset} Trust proxy: ${config.server.trustProxy} | CORS: enabled | Rate limiting: active`);
+            console.log(`${colors.blue}[PERF]${colors.reset} Compression: enabled | Performance monitoring: active`);
+            console.log(`${colors.green}[SECURITY]${colors.reset} Security headers enabled | CORS origin: ${config.security.corsOrigin}`);
+            
+            // Log database initialization details
+            if (dbResult.details?.firstTimeSetup) {
+                console.log(`${colors.bright}${colors.yellow}[DATABASE]${colors.reset} First-time setup completed - check above for admin credentials`);
+            } else {
+                console.log(`${colors.green}[DATABASE]${colors.reset} Database ready - using existing data`);
+            }
+            
+            // Start the alert engine
+            alertEngine.start();
+            console.log(`${colors.green}[ALERTS]${colors.reset} Alert engine started - monitoring active`);
+            
+            // Start memory leak detection
+            performanceMonitor.detectMemoryLeaks();
+            console.log(`${colors.magenta}[MONITOR]${colors.reset} Memory leak detection: enabled`);
+        });
+    } catch (error) {
+        console.error(`${colors.bgRed}${colors.bright} STARTUP FAILED ${colors.reset}`);
+        console.error(`${colors.red}[ERROR]${colors.reset}`, error);
+        process.exit(1);
+    }
+}
+
+// Start the server with database initialization
+startServer();

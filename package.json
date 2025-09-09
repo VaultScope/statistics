@@ -11,8 +11,9 @@
     "db:push": "drizzle-kit push:sqlite",
     "db:studio": "drizzle-kit studio",
     "db:init-tables": "ts-node ./server/db/init-tables.ts",
-    "db:init": "npm run db:init-tables && ts-node ./server/scripts/init-database.ts",
+    "db:init": "ts-node ./server/services/databaseInitializer.ts",
     "db:setup": "npm run db:init",
+    "db:reset": "NODE_ENV=development ts-node -e \"require('./server/services/databaseInitializer').default.reset()\"",
     "build:server": "tsc",
     "build:client": "cd client && next build",
     "build:all": "npm run build:server && npm run build:client",
@@ -34,10 +35,9 @@
     "clean": "rm -rf dist && rm -rf client/.next",
     "clean:db": "rm -f database.db database.db-shm database.db-wal",
     "lint": "echo \"Linting not configured\"",
-    "production:setup": "npm run clean && npm run build:all && npm run db:init",
+    "production:setup": "npm run clean && npm run build:all",
     "production:start": "NODE_ENV=production npm run start:all",
-    "deploy": "npm run production:setup && npm run production:start",
-    "postinstall": "npm run db:init"
+    "deploy": "npm run production:setup && npm run production:start"
   },
   "keywords": [],
   "author": "",
