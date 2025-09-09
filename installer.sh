@@ -1,10 +1,17 @@
 #!/bin/bash
 
-# VaultScope Statistics Installer v9.0
-# Enhanced UI, selective installation, Ubuntu 24.04 LTS support
+# VaultScope Statistics Installer v10.0
+# Enhanced UI, selective installation, uninstall support
 # Fixes API key path issues and provides better error handling
 
 set +e  # Don't exit on errors - we handle them properly
+
+# Check if uninstall mode
+if [[ "$1" == "--uninstall" ]] || [[ "$1" == "-u" ]]; then
+    UNINSTALL_MODE=true
+else
+    UNINSTALL_MODE=false
+fi
 
 # ============================================================================
 # CONFIGURATION
@@ -65,12 +72,21 @@ fi
 # ============================================================================
 print_banner() {
     clear
-    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}                                                                              ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}VaultScope Statistics${NC} - Enterprise System Monitoring                      ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}  ${DIM}Installer v${INSTALLER_VERSION} - Enhanced Edition${NC}                                        ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}                                                                              ${CYAN}║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════════╝${NC}"
+    if [[ "$UNINSTALL_MODE" == true ]]; then
+        echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${CYAN}║${NC}                                                                              ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}VaultScope Statistics${NC} - Uninstaller                                       ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}  ${DIM}Safely Remove All Components${NC}                                               ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}                                                                              ${CYAN}║${NC}"
+        echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════════╝${NC}"
+    else
+        echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${CYAN}║${NC}                                                                              ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}VaultScope Statistics${NC} - Enterprise System Monitoring                      ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}  ${DIM}Installer v10.0 - Enhanced Edition${NC}                                        ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}                                                                              ${CYAN}║${NC}"
+        echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════════╝${NC}"
+    fi
     echo ""
 }
 
@@ -905,6 +921,188 @@ handle_error() {
 }
 
 # ============================================================================
+# UNINSTALL FUNCTIONS
+# ============================================================================
+uninstall_confirm() {
+    echo -e "${YELLOW}⚠ WARNING: This will remove VaultScope Statistics and all its data!${NC}"
+    echo ""
+    echo "The following will be removed:"
+    echo "  ${DOT} Application directory: $INSTALL_DIR"
+    echo "  ${DOT} Configuration directory: $CONFIG_DIR"
+    echo "  ${DOT} Log directory: $LOG_DIR"
+    echo "  ${DOT} Backup directory: $BACKUP_DIR"
+    echo "  ${DOT} Systemd services"
+    echo "  ${DOT} Nginx configurations (if exist)"
+    echo "  ${DOT} CLI command symlink"
+    echo ""
+    
+    read -p "Do you want to create a backup before uninstalling? (y/n): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        uninstall_backup
+    fi
+    
+    echo ""
+    read -p "Are you sure you want to uninstall VaultScope Statistics? (yes/no): " -r
+    if [[ ! $REPLY == "yes" ]]; then
+        print_warning "Uninstallation cancelled."
+        exit 0
+    fi
+}
+
+uninstall_backup() {
+    print_progress "Creating backup"
+    
+    BACKUP_FILE="/tmp/vaultscope-statistics-backup-$(date +%Y%m%d-%H%M%S).tar.gz"
+    
+    # Create list of files to backup
+    FILES_TO_BACKUP=""
+    
+    if [ -d "$INSTALL_DIR" ]; then
+        FILES_TO_BACKUP="$FILES_TO_BACKUP $INSTALL_DIR"
+    fi
+    
+    if [ -d "$CONFIG_DIR" ]; then
+        FILES_TO_BACKUP="$FILES_TO_BACKUP $CONFIG_DIR"
+    fi
+    
+    if [ -d "$LOG_DIR" ]; then
+        FILES_TO_BACKUP="$FILES_TO_BACKUP $LOG_DIR"
+    fi
+    
+    if [ -n "$FILES_TO_BACKUP" ]; then
+        tar -czf "$BACKUP_FILE" $FILES_TO_BACKUP 2>/dev/null || true
+        print_success "Backup created: $BACKUP_FILE"
+        
+        # Also save API keys if database exists
+        if [ -f "$INSTALL_DIR/database.db" ]; then
+            sqlite3 "$INSTALL_DIR/database.db" "SELECT name, key FROM api_keys;" > /tmp/vaultscope-api-keys-backup.txt 2>/dev/null || true
+            if [ -f "/tmp/vaultscope-api-keys-backup.txt" ]; then
+                print_success "API keys saved to: /tmp/vaultscope-api-keys-backup.txt"
+            fi
+        fi
+    else
+        print_warning "No files found to backup"
+    fi
+}
+
+uninstall_services() {
+    print_subsection "Stopping and removing services"
+    
+    # Stop server service
+    if systemctl list-units --full -all | grep -Fq "vaultscope-statistics-server.service"; then
+        print_progress "Stopping server service"
+        systemctl stop vaultscope-statistics-server 2>/dev/null || true
+        systemctl disable vaultscope-statistics-server 2>/dev/null || true
+        print_success "Stopped server service"
+    fi
+    
+    # Stop client service
+    if systemctl list-units --full -all | grep -Fq "vaultscope-statistics-client.service"; then
+        print_progress "Stopping client service"
+        systemctl stop vaultscope-statistics-client 2>/dev/null || true
+        systemctl disable vaultscope-statistics-client 2>/dev/null || true
+        print_success "Stopped client service"
+    fi
+    
+    # Remove service files
+    rm -f /etc/systemd/system/vaultscope-statistics-server.service
+    rm -f /etc/systemd/system/vaultscope-statistics-client.service
+    
+    # Reload systemd
+    systemctl daemon-reload
+    
+    # Kill any remaining node processes
+    pkill -f "vaultscope-statistics" 2>/dev/null || true
+    
+    print_success "Services removed"
+}
+
+uninstall_nginx() {
+    print_subsection "Removing nginx configurations"
+    
+    # Remove nginx site configurations
+    rm -f /etc/nginx/sites-enabled/vaultscope-statistics-api
+    rm -f /etc/nginx/sites-enabled/vaultscope-statistics-client
+    rm -f /etc/nginx/sites-available/vaultscope-statistics-api
+    rm -f /etc/nginx/sites-available/vaultscope-statistics-client
+    
+    # Test and reload nginx if it's running
+    if systemctl is-active --quiet nginx; then
+        nginx -t 2>/dev/null && systemctl reload nginx
+        print_success "Removed nginx configurations"
+    fi
+}
+
+uninstall_files() {
+    print_subsection "Removing application files"
+    
+    # Remove installation directory
+    if [ -d "$INSTALL_DIR" ]; then
+        print_progress "Removing $INSTALL_DIR"
+        rm -rf "$INSTALL_DIR"
+        print_success "Removed application directory"
+    fi
+    
+    # Remove configuration directory
+    if [ -d "$CONFIG_DIR" ]; then
+        rm -rf "$CONFIG_DIR"
+        print_success "Removed configuration directory"
+    fi
+    
+    # Remove log directory
+    if [ -d "$LOG_DIR" ]; then
+        rm -rf "$LOG_DIR"
+        print_success "Removed log directory"
+    fi
+    
+    # Remove backup directory
+    if [ -d "$BACKUP_DIR" ]; then
+        rm -rf "$BACKUP_DIR"
+        print_success "Removed backup directory"
+    fi
+    
+    # Remove CLI symlink
+    if [ -L "/usr/local/bin/statistics" ]; then
+        rm -f "/usr/local/bin/statistics"
+        print_success "Removed CLI command"
+    fi
+}
+
+uninstall_complete() {
+    print_section "Uninstallation Complete!"
+    
+    echo -e "${GREEN}VaultScope Statistics has been removed from your system.${NC}"
+    
+    if [ -f "$BACKUP_FILE" ]; then
+        echo -e "${YELLOW}Backup saved at: $BACKUP_FILE${NC}"
+    fi
+    
+    if [ -f "/tmp/vaultscope-api-keys-backup.txt" ]; then
+        echo -e "${YELLOW}API keys backup: /tmp/vaultscope-api-keys-backup.txt${NC}"
+    fi
+    
+    echo ""
+    echo -e "${CYAN}Thank you for using VaultScope Statistics!${NC}"
+    exit 0
+}
+
+perform_uninstall() {
+    print_banner
+    print_section "Uninstallation Process"
+    
+    uninstall_confirm
+    uninstall_services
+    uninstall_nginx
+    uninstall_files
+    
+    # Clean npm cache
+    npm cache clean --force 2>/dev/null || true
+    
+    uninstall_complete
+}
+
+# ============================================================================
 # MAIN INSTALLATION FLOW
 # ============================================================================
 main() {
@@ -915,6 +1113,12 @@ main() {
     if [ "$EUID" -ne 0 ]; then
         echo "This installer must be run as root"
         exit 1
+    fi
+    
+    # Check if uninstall mode
+    if [[ "$UNINSTALL_MODE" == true ]]; then
+        perform_uninstall
+        exit 0
     fi
     
     # Show banner
