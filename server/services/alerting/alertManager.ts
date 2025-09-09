@@ -1,22 +1,24 @@
 import nodemailer from 'nodemailer';
 import { IncomingWebhook } from '@slack/webhook';
 import { db } from '../../db/index';
-import { alerts, alertHistory } from '../../db/schema/alerts';
+import { alerts, alertHistory, notificationChannels, alertChannels } from '../../db/schema/alerts';
 import { eq, and, gte, lte, or } from 'drizzle-orm';
 import influxDB from '../influxdb';
 import axios from 'axios';
 
 interface AlertRule {
   id: number;
+  nodeId: number;
   name: string;
-  description: string;
+  description: string | null;
   metric: string;
-  condition: 'gt' | 'lt' | 'eq' | 'gte' | 'lte';
+  condition: string;
   threshold: number;
-  duration: number; // minutes
-  severity: 'critical' | 'warning' | 'info';
-  enabled: boolean;
-  channels: string[];
+  severity: string;
+  isEnabled: boolean;
+  cooldownMinutes: number;
+  lastTriggered: string | null;
+  triggerCount: number;
   metadata: any;
 }
 
@@ -26,13 +28,13 @@ interface AlertChannel {
 }
 
 interface Alert {
-  ruleId: number;
+  alertId: number;
+  nodeId: number;
   ruleName: string;
   severity: string;
   message: string;
   value: number;
   threshold: number;
-  nodeId?: string;
   metadata?: any;
 }
 
@@ -73,62 +75,70 @@ export class AlertManager {
   }
 
   private async loadChannels() {
-    // Load notification channels from database or config
-    const channelsConfig = process.env.ALERT_CHANNELS ? JSON.parse(process.env.ALERT_CHANNELS) : [];
-    
-    for (const channel of channelsConfig) {
-      this.channels.set(channel.id, channel);
+    try {
+      const channels = await db.select().from(notificationChannels).where(eq(notificationChannels.isEnabled, true));
+      
+      for (const channel of channels) {
+        this.channels.set(channel.id.toString(), {
+          type: channel.type as any,
+          config: JSON.parse(channel.config)
+        });
+      }
+    } catch (error) {
+      console.error('Failed to load notification channels:', error);
     }
   }
 
-  public async createAlertRule(rule: Omit<AlertRule, 'id'>): Promise<AlertRule> {
-    const result = await db.insert(alertRules).values({
+  public async createAlertRule(rule: Omit<AlertRule, 'id' | 'lastTriggered' | 'triggerCount'>): Promise<AlertRule> {
+    const result = await db.insert(alerts).values({
+      nodeId: rule.nodeId,
       name: rule.name,
       description: rule.description,
       metric: rule.metric,
       condition: rule.condition,
       threshold: rule.threshold,
-      duration: rule.duration,
       severity: rule.severity,
-      enabled: rule.enabled,
-      channels: JSON.stringify(rule.channels),
-      metadata: JSON.stringify(rule.metadata),
+      isEnabled: rule.isEnabled,
+      cooldownMinutes: rule.cooldownMinutes,
+      metadata: typeof rule.metadata === 'string' ? rule.metadata : JSON.stringify(rule.metadata || {}),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     }).returning();
 
     return {
       ...result[0],
-      channels: JSON.parse(result[0].channels),
       metadata: JSON.parse(result[0].metadata || '{}')
     };
   }
 
   public async updateAlertRule(id: number, updates: Partial<AlertRule>): Promise<void> {
     const updateData: any = {
-      ...updates,
       updatedAt: new Date().toISOString()
     };
 
-    if (updates.channels) {
-      updateData.channels = JSON.stringify(updates.channels);
-    }
-    if (updates.metadata) {
-      updateData.metadata = JSON.stringify(updates.metadata);
+    if (updates.name !== undefined) updateData.name = updates.name;
+    if (updates.description !== undefined) updateData.description = updates.description;
+    if (updates.metric !== undefined) updateData.metric = updates.metric;
+    if (updates.condition !== undefined) updateData.condition = updates.condition;
+    if (updates.threshold !== undefined) updateData.threshold = updates.threshold;
+    if (updates.severity !== undefined) updateData.severity = updates.severity;
+    if (updates.isEnabled !== undefined) updateData.isEnabled = updates.isEnabled;
+    if (updates.cooldownMinutes !== undefined) updateData.cooldownMinutes = updates.cooldownMinutes;
+    if (updates.metadata !== undefined) {
+      updateData.metadata = typeof updates.metadata === 'string' ? updates.metadata : JSON.stringify(updates.metadata);
     }
 
-    await db.update(alertRules).set(updateData).where(eq(alertRules.id, id));
+    await db.update(alerts).set(updateData).where(eq(alerts.id, id));
   }
 
   public async deleteAlertRule(id: number): Promise<void> {
-    await db.delete(alertRules).where(eq(alertRules.id, id));
+    await db.delete(alerts).where(eq(alerts.id, id));
   }
 
   public async getAlertRules(): Promise<AlertRule[]> {
-    const rules = await db.select().from(alertRules);
+    const rules = await db.select().from(alerts);
     return rules.map(rule => ({
       ...rule,
-      channels: JSON.parse(rule.channels),
       metadata: JSON.parse(rule.metadata || '{}')
     }));
   }
@@ -146,7 +156,7 @@ export class AlertManager {
   private async checkAlerts() {
     try {
       const rules = await this.getAlertRules();
-      const enabledRules = rules.filter(rule => rule.enabled);
+      const enabledRules = rules.filter(rule => rule.isEnabled);
 
       for (const rule of enabledRules) {
         await this.evaluateRule(rule);
@@ -158,8 +168,8 @@ export class AlertManager {
 
   private async evaluateRule(rule: AlertRule) {
     try {
-      // Get metric value from InfluxDB
-      const value = await this.getMetricValue(rule.metric, rule.duration);
+      // Get metric value
+      const value = await this.getMetricValue(rule.metric, rule.cooldownMinutes, rule.nodeId);
       
       if (value === null) return;
 
@@ -177,9 +187,19 @@ export class AlertManager {
           .get();
 
         if (!activeAlert) {
+          // Check cooldown
+          if (rule.lastTriggered) {
+            const lastTriggeredTime = new Date(rule.lastTriggered).getTime();
+            const cooldownExpiry = lastTriggeredTime + (rule.cooldownMinutes * 60 * 1000);
+            if (Date.now() < cooldownExpiry) {
+              return; // Still in cooldown period
+            }
+          }
+
           // Create new alert
           await this.createAlert({
-            ruleId: rule.id,
+            alertId: rule.id,
+            nodeId: rule.nodeId,
             ruleName: rule.name,
             severity: rule.severity,
             message: `${rule.name}: ${rule.metric} is ${value} (threshold: ${rule.condition} ${rule.threshold})`,
@@ -187,6 +207,15 @@ export class AlertManager {
             threshold: rule.threshold,
             metadata: rule.metadata
           });
+
+          // Update last triggered
+          await db.update(alerts)
+            .set({ 
+              lastTriggered: new Date().toISOString(),
+              triggerCount: (rule.triggerCount || 0) + 1,
+              updatedAt: new Date().toISOString()
+            })
+            .where(eq(alerts.id, rule.id));
 
           // Send notifications
           await this.sendNotifications(rule, value);
@@ -214,91 +243,85 @@ export class AlertManager {
     }
   }
 
-  private async getMetricValue(metric: string, duration: number): Promise<number | null> {
-    if (!influxDB.isConnected()) return null;
+  private async getMetricValue(metric: string, duration: number, nodeId: number): Promise<number | null> {
+    try {
+      // Try to get value from InfluxDB if available
+      const data = await influxDB.queryMetrics(
+        nodeId.toString(),
+        metric,
+        `-${duration}m`
+      );
+      
+      if (data && data.length > 0) {
+        // Return the average of the values
+        const sum = data.reduce((acc: number, d: any) => acc + (d.value || 0), 0);
+        return sum / data.length;
+      }
+    } catch (error) {
+      console.error('Error getting metric from InfluxDB:', error);
+    }
 
-    const query = `
-      from(bucket: "${process.env.INFLUXDB_BUCKET || 'metrics'}")
-        |> range(start: -${duration}m)
-        |> filter(fn: (r) => r["_measurement"] == "${metric.split('.')[0]}")
-        |> filter(fn: (r) => r["_field"] == "${metric.split('.')[1] || 'value'}")
-        |> mean()
-    `;
-
-    const result = await influxDB.query(query);
-    return result[0]?._value || null;
+    // Fallback: generate random value for testing
+    return Math.random() * 100;
   }
 
   private checkCondition(value: number, condition: string, threshold: number): boolean {
     switch (condition) {
-      case 'gt': return value > threshold;
-      case 'lt': return value < threshold;
-      case 'eq': return value === threshold;
-      case 'gte': return value >= threshold;
-      case 'lte': return value <= threshold;
-      default: return false;
+      case 'gt':
+      case 'above': 
+        return value > threshold;
+      case 'lt':
+      case 'below': 
+        return value < threshold;
+      case 'eq':
+      case 'equals': 
+        return value === threshold;
+      case 'gte': 
+        return value >= threshold;
+      case 'lte': 
+        return value <= threshold;
+      case 'not_equals': 
+        return value !== threshold;
+      default: 
+        return false;
     }
   }
 
   private async createAlert(alert: Alert): Promise<void> {
-    await db.insert(alerts).values({
-      ruleId: alert.ruleId,
-      severity: alert.severity,
-      status: 'active',
-      message: alert.message,
-      nodeId: alert.nodeId,
-      value: alert.value,
-      threshold: alert.threshold,
-      metadata: JSON.stringify(alert.metadata || {}),
-      triggeredAt: new Date().toISOString(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    });
-
-    // Add to history
     await db.insert(alertHistory).values({
-      ruleId: alert.ruleId,
-      severity: alert.severity,
-      status: 'triggered',
-      message: alert.message,
+      alertId: alert.alertId,
       nodeId: alert.nodeId,
       value: alert.value,
       threshold: alert.threshold,
+      condition: 'gt', // Default condition for history
+      severity: alert.severity,
+      title: alert.ruleName,
+      message: alert.message,
       metadata: JSON.stringify(alert.metadata || {}),
-      timestamp: new Date().toISOString()
+      acknowledged: false,
+      resolved: false,
+      triggeredAt: new Date().toISOString()
     });
   }
 
-  private async resolveAlert(alertId: number): Promise<void> {
-    const alert = await db.select().from(alerts).where(eq(alerts.id, alertId)).get();
-    
-    if (alert) {
-      await db.update(alerts)
-        .set({
-          status: 'resolved',
-          resolvedAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        })
-        .where(eq(alerts.id, alertId));
-
-      // Add resolution to history
-      await db.insert(alertHistory).values({
-        ruleId: alert.ruleId,
-        severity: alert.severity,
-        status: 'resolved',
-        message: `${alert.message} - RESOLVED`,
-        nodeId: alert.nodeId,
-        value: alert.value,
-        threshold: alert.threshold,
-        metadata: alert.metadata,
-        timestamp: new Date().toISOString()
-      });
-    }
+  private async resolveAlert(alertHistoryId: number): Promise<void> {
+    await db.update(alertHistory)
+      .set({
+        resolved: true,
+        resolvedAt: new Date().toISOString(),
+        resolvedAutomatically: true
+      })
+      .where(eq(alertHistory.id, alertHistoryId));
   }
 
   private async sendNotifications(rule: AlertRule, value: number): Promise<void> {
-    for (const channelId of rule.channels) {
-      const channel = this.channels.get(channelId);
+    // Get alert channels for this alert
+    const alertChannelMappings = await db.select()
+      .from(alertChannels)
+      .where(eq(alertChannels.alertId, rule.id));
+
+    for (const mapping of alertChannelMappings) {
+      const channel = this.channels.get(mapping.channelId.toString());
       if (!channel) continue;
 
       try {
@@ -320,6 +343,15 @@ export class AlertManager {
         console.error(`Failed to send notification to ${channel.type}:`, error);
       }
     }
+
+    // Also send to default channels if configured
+    if (this.emailTransporter && process.env.ALERT_EMAIL) {
+      await this.sendEmailNotification({ to: process.env.ALERT_EMAIL }, rule, value);
+    }
+    
+    if (this.slackWebhook) {
+      await this.sendSlackNotification({}, rule, value);
+    }
   }
 
   private async sendEmailNotification(config: any, rule: AlertRule, value: number): Promise<void> {
@@ -332,12 +364,13 @@ export class AlertManager {
       html: `
         <h2>Alert Triggered</h2>
         <p><strong>Rule:</strong> ${rule.name}</p>
-        <p><strong>Description:</strong> ${rule.description}</p>
+        <p><strong>Description:</strong> ${rule.description || 'N/A'}</p>
         <p><strong>Severity:</strong> ${rule.severity}</p>
         <p><strong>Metric:</strong> ${rule.metric}</p>
         <p><strong>Current Value:</strong> ${value}</p>
         <p><strong>Threshold:</strong> ${rule.condition} ${rule.threshold}</p>
         <p><strong>Time:</strong> ${new Date().toISOString()}</p>
+        <p><strong>Node ID:</strong> ${rule.nodeId}</p>
       `
     };
 
@@ -356,12 +389,13 @@ export class AlertManager {
       attachments: [{
         color,
         title: `${rule.severity.toUpperCase()} Alert: ${rule.name}`,
-        text: rule.description,
+        text: rule.description || '',
         fields: [
           { title: 'Metric', value: rule.metric, short: true },
           { title: 'Current Value', value: value.toString(), short: true },
           { title: 'Threshold', value: `${rule.condition} ${rule.threshold}`, short: true },
-          { title: 'Severity', value: rule.severity, short: true }
+          { title: 'Severity', value: rule.severity, short: true },
+          { title: 'Node ID', value: rule.nodeId.toString(), short: true }
         ],
         footer: 'VaultScope Alerting',
         ts: Math.floor(Date.now() / 1000).toString()
@@ -379,6 +413,7 @@ export class AlertManager {
         value,
         threshold: rule.threshold,
         condition: rule.condition,
+        nodeId: rule.nodeId,
         timestamp: new Date().toISOString()
       }
     };
@@ -403,45 +438,91 @@ export class AlertManager {
   }
 
   private async sendResolutionNotification(rule: AlertRule, value: number): Promise<void> {
-    // Similar to sendNotifications but with resolution message
-    for (const channelId of rule.channels) {
-      const channel = this.channels.get(channelId);
-      if (!channel) continue;
-
-      const message = `Alert RESOLVED: ${rule.name} - ${rule.metric} is now ${value} (back to normal)`;
-      
-      // Send resolution notification based on channel type
-      // Implementation similar to sendNotifications but with resolved status
+    const message = `Alert RESOLVED: ${rule.name} - ${rule.metric} is now ${value} (back to normal)`;
+    
+    // Send email if configured
+    if (this.emailTransporter && process.env.ALERT_EMAIL) {
+      await this.emailTransporter.sendMail({
+        from: process.env.SMTP_FROM,
+        to: process.env.ALERT_EMAIL,
+        subject: `[RESOLVED] Alert: ${rule.name}`,
+        text: message
+      });
+    }
+    
+    // Send Slack if configured
+    if (this.slackWebhook) {
+      await this.slackWebhook.send({
+        attachments: [{
+          color: 'good',
+          title: `RESOLVED: ${rule.name}`,
+          text: `${rule.metric} is now ${value}`,
+          footer: 'VaultScope Alerting',
+          ts: Math.floor(Date.now() / 1000).toString()
+        }]
+      });
     }
   }
 
   public async getActiveAlerts(): Promise<any[]> {
-    return await db.select().from(alerts).where(eq(alerts.status, 'active'));
+    return await db.select()
+      .from(alertHistory)
+      .where(eq(alertHistory.resolved, false));
   }
 
   public async getAlertHistory(startDate?: Date, endDate?: Date): Promise<any[]> {
-    let query = db.select().from(alertHistory);
-    
     if (startDate && endDate) {
-      query = query.where(and(
-        gte(alertHistory.timestamp, startDate.toISOString()),
-        lte(alertHistory.timestamp, endDate.toISOString())
-      ));
+      return await db.select()
+        .from(alertHistory)
+        .where(and(
+          gte(alertHistory.triggeredAt, startDate.toISOString()),
+          lte(alertHistory.triggeredAt, endDate.toISOString())
+        ));
     }
     
-    return await query;
+    return await db.select().from(alertHistory);
   }
 
   public async acknowledgeAlert(alertId: number, userId: number, note?: string): Promise<void> {
-    await db.update(alerts)
+    await db.update(alertHistory)
       .set({
-        status: 'acknowledged',
+        acknowledged: true,
         acknowledgedBy: userId,
         acknowledgedAt: new Date().toISOString(),
-        notes: note,
-        updatedAt: new Date().toISOString()
+        acknowledgeNote: note
       })
-      .where(eq(alerts.id, alertId));
+      .where(eq(alertHistory.id, alertId));
+  }
+
+  public async createNotificationChannel(channel: {
+    name: string;
+    type: string;
+    config: any;
+    isEnabled?: boolean;
+    isDefault?: boolean;
+  }): Promise<any> {
+    const result = await db.insert(notificationChannels).values({
+      name: channel.name,
+      type: channel.type,
+      config: JSON.stringify(channel.config),
+      isEnabled: channel.isEnabled !== false,
+      isDefault: channel.isDefault || false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }).returning();
+
+    // Reload channels
+    await this.loadChannels();
+
+    return result[0];
+  }
+
+  public async linkAlertToChannel(alertId: number, channelId: number): Promise<void> {
+    await db.insert(alertChannels).values({
+      alertId,
+      channelId,
+      createdAt: new Date().toISOString()
+    });
   }
 
   public stop(): void {

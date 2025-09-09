@@ -126,10 +126,10 @@ export class ReportGenerator {
   private async calculateSLAMetrics(startDate: Date, endDate: Date): Promise<SLAMetrics> {
     try {
       // Use the built-in SLA calculation from InfluxDB service
+      const hours = Math.floor((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60));
       const slaData = await influxDB.calculateSLA(
         'all',
-        startDate.toISOString(),
-        endDate.toISOString()
+        `-${hours}h`
       );
       
       return {
