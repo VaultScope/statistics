@@ -1,4 +1,5 @@
 // Mock repository for testing - bypasses database type errors
+import makeid from '../../functions/keys/generate';
 export type ApiKeyWithPermissions = {
   id: number;
   uuid: string;
@@ -39,7 +40,7 @@ export class ApiKeyRepository {
       id: this.mockKeys.length + 1,
       uuid: `uuid-${Date.now()}`,
       name,
-      key: `key-${Math.random().toString(36).substring(7)}`,
+      key: makeid(),
       permissions,
       isActive: true,
       lastUsed: null,

@@ -397,24 +397,24 @@ setup_databases() {
     mkdir -p "$INSTALL_DIR"
     print_done
     
-    # Run database migrations
-    print_progress "Running database migrations"
+    # Generate drizzle migration files first
+    print_progress "Generating database migration files"
     cd "$INSTALL_DIR"
-    
-    # Generate migration files
     npm run db:generate &>/dev/null 2>&1 || true
+    print_done
     
-    # Run migrations and seed data
+    # Run database migrations and seed default data
+    print_progress "Running database migrations and seeding data"
     npm run db:migrate &>/dev/null 2>&1
     
     if [ $? -eq 0 ]; then
         print_done
-        print_success "Database initialized with default data"
+        print_success "Database initialized with default data including roles and categories"
     else
         print_warning "Database migration encountered issues - will retry on first start"
     fi
     
-    # Set proper permissions
+    # Set proper permissions for database file
     print_progress "Setting database permissions"
     if [ -f "$INSTALL_DIR/database.db" ]; then
         chmod 660 "$INSTALL_DIR/database.db"
@@ -422,14 +422,6 @@ setup_databases() {
         chown $(whoami):$(whoami) "$INSTALL_DIR/database.db"
     fi
     print_done
-    
-    # Legacy JSON migration (if old files exist)
-    if [ -f "$INSTALL_DIR/database.json" ] || [ -f "$INSTALL_DIR/apiKeys.json" ]; then
-        print_progress "Migrating legacy JSON data to SQLite"
-        npm run db:migrate &>/dev/null 2>&1
-        print_done
-        print_info "Legacy data migrated and backed up"
-    fi
     
     # Setup initial admin API key if requested
     if [ "${INSTALL_OPTIONS[apikey]}" = true ]; then
@@ -443,69 +435,19 @@ setup_databases() {
 setup_initial_apikey() {
     print_progress "Creating initial admin API key"
     
-    # Generate a secure API key
-    API_KEY=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-45)
-    UUID=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "$(date +%s)-$(openssl rand -hex 8)")
+    cd "$INSTALL_DIR"
     
-    # Create API key using Node.js script
-    cat > "$INSTALL_DIR/create-initial-key.js" << 'EOFSCRIPT'
-const Database = require('better-sqlite3');
-const path = require('path');
-
-// Create database connection
-const dbPath = process.env.NODE_ENV === 'production' 
-  ? '/var/www/vaultscope-statistics/database.db'
-  : path.join(process.cwd(), 'database.db');
-
-const db = new Database(dbPath);
-
-// Create API key
-const key = process.env.API_KEY;
-const uuid = process.env.API_UUID;
-
-try {
-  const stmt = db.prepare(`
-    INSERT INTO api_keys (uuid, name, key, permissions, is_active)
-    VALUES (?, ?, ?, ?, ?)
-  `);
-  
-  stmt.run(
-    uuid,
-    'Initial Admin Key',
-    key,
-    JSON.stringify({
-      viewStats: true,
-      createApiKey: true,
-      deleteApiKey: true,
-      viewApiKeys: true,
-      usePowerCommands: true
-    }),
-    1
-  );
-  
-  console.log('API key created successfully');
-  process.exit(0);
-} catch (error) {
-  console.error('Failed to create API key:', error);
-  process.exit(1);
-} finally {
-  db.close();
-}
-EOFSCRIPT
-    
-    # Run the script to create the API key
-    API_KEY="$API_KEY" API_UUID="$UUID" node "$INSTALL_DIR/create-initial-key.js" &>/dev/null 2>&1
+    # Use the existing npm run apikey command to create an admin key
+    API_KEY_OUTPUT=$(npm run apikey create "Initial Admin Key" --admin 2>/dev/null)
     
     if [ $? -eq 0 ]; then
         print_done
-        # Save API key for display later
-        GENERATED_API_KEY=$API_KEY
+        # Extract the API key from the output
+        GENERATED_API_KEY=$(echo "$API_KEY_OUTPUT" | grep "Key:" | cut -d' ' -f2)
+        print_success "Initial admin API key created successfully"
     else
-        print_warning "Could not create initial API key - you can create one manually later"
+        print_warning "Could not create initial API key - you can create one manually later with: npm run apikey create \"Admin Key\" --admin"
     fi
-    
-    # Clean up the temporary script
-    rm -f "$INSTALL_DIR/create-initial-key.js"
 }
 
 # ============================================================================
@@ -532,7 +474,8 @@ setup_services() {
         cat > /etc/systemd/system/vaultscope-statistics-server.service << EOF
 [Unit]
 Description=VaultScope Statistics Server
-After=network.target
+After=network.target network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
@@ -541,10 +484,23 @@ WorkingDirectory=$INSTALL_DIR
 Environment="NODE_ENV=production"
 Environment="PORT=4000"
 ExecStart=/usr/bin/node $INSTALL_DIR/dist/server/index.js
+ExecReload=/bin/kill -HUP \$MAINPID
+KillMode=mixed
+KillSignal=SIGINT
+TimeoutStopSec=30
 Restart=always
 RestartSec=10
+StartLimitInterval=60s
+StartLimitBurst=3
 StandardOutput=append:$LOG_DIR/server.log
 StandardError=append:$LOG_DIR/server-error.log
+
+# Security settings
+NoNewPrivileges=false
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=$INSTALL_DIR $LOG_DIR
+ProtectHome=true
 
 [Install]
 WantedBy=multi-user.target
@@ -559,7 +515,8 @@ EOF
         cat > /etc/systemd/system/vaultscope-statistics-client.service << EOF
 [Unit]
 Description=VaultScope Statistics Client
-After=network.target vaultscope-statistics-server.service
+After=network.target network-online.target vaultscope-statistics-server.service
+Wants=network-online.target
 
 [Service]
 Type=simple
@@ -568,10 +525,23 @@ WorkingDirectory=$INSTALL_DIR/client
 Environment="NODE_ENV=production"
 Environment="PORT=4001"
 ExecStart=/usr/bin/npx next start -p 4001
+ExecReload=/bin/kill -HUP \$MAINPID
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
 Restart=always
 RestartSec=10
+StartLimitInterval=60s
+StartLimitBurst=3
 StandardOutput=append:$LOG_DIR/client.log
 StandardError=append:$LOG_DIR/client-error.log
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=$INSTALL_DIR/client $LOG_DIR
+ProtectHome=true
 
 [Install]
 WantedBy=multi-user.target
@@ -726,18 +696,131 @@ create_cli_tool() {
     
     print_section "Installing CLI Tools"
     
-    print_progress "Creating CLI tool"
+    print_progress "Creating CLI tool wrapper"
     
-    cat > /usr/local/bin/statistics << 'EOF'
+    cat > /usr/local/bin/vaultscope-statistics << 'EOF'
 #!/bin/bash
-cd /var/www/vaultscope-statistics
-node cli.js "$@"
+# VaultScope Statistics CLI Tool
+# This script provides easy access to the statistics CLI commands
+
+INSTALL_DIR="/var/www/vaultscope-statistics"
+
+# Check if installation directory exists
+if [ ! -d "$INSTALL_DIR" ]; then
+    echo "Error: VaultScope Statistics not found in $INSTALL_DIR"
+    exit 1
+fi
+
+cd "$INSTALL_DIR"
+
+case "$1" in
+    "apikey")
+        shift
+        npm run apikey "$@"
+        ;;
+    "speed")
+        npm run speed
+        ;;
+    "sysinfo")
+        npm run sysinfo
+        ;;
+    "server")
+        shift
+        case "$1" in
+            "start"|"")
+                systemctl start vaultscope-statistics-server
+                ;;
+            "stop")
+                systemctl stop vaultscope-statistics-server
+                ;;
+            "restart")
+                systemctl restart vaultscope-statistics-server
+                ;;
+            "status")
+                systemctl status vaultscope-statistics-server
+                ;;
+            "logs")
+                journalctl -u vaultscope-statistics-server -f
+                ;;
+            *)
+                echo "Usage: vaultscope-statistics server [start|stop|restart|status|logs]"
+                exit 1
+                ;;
+        esac
+        ;;
+    "client")
+        shift
+        case "$1" in
+            "start"|"")
+                systemctl start vaultscope-statistics-client
+                ;;
+            "stop")
+                systemctl stop vaultscope-statistics-client
+                ;;
+            "restart")
+                systemctl restart vaultscope-statistics-client
+                ;;
+            "status")
+                systemctl status vaultscope-statistics-client
+                ;;
+            "logs")
+                journalctl -u vaultscope-statistics-client -f
+                ;;
+            *)
+                echo "Usage: vaultscope-statistics client [start|stop|restart|status|logs]"
+                exit 1
+                ;;
+        esac
+        ;;
+    "help"|"--help"|"-h"|"")
+        echo "VaultScope Statistics CLI Tool"
+        echo "=============================="
+        echo ""
+        echo "Usage: vaultscope-statistics <command> [options]"
+        echo ""
+        echo "Commands:"
+        echo "  apikey <action>     Manage API keys"
+        echo "    create <name>     Create a new API key"
+        echo "    list              List all API keys"
+        echo "    delete <id>       Delete an API key"
+        echo ""
+        echo "  speed               Run speed test"
+        echo "  sysinfo             Show system information"
+        echo ""
+        echo "  server <action>     Manage server service"
+        echo "    start             Start the server"
+        echo "    stop              Stop the server"
+        echo "    restart           Restart the server"
+        echo "    status            Show server status"
+        echo "    logs              View server logs"
+        echo ""
+        echo "  client <action>     Manage client service"
+        echo "    start             Start the client"
+        echo "    stop              Stop the client"
+        echo "    restart           Restart the client"
+        echo "    status            Show client status"
+        echo "    logs              View client logs"
+        echo ""
+        echo "Examples:"
+        echo "  vaultscope-statistics apikey create \"My Key\" --admin"
+        echo "  vaultscope-statistics server restart"
+        echo "  vaultscope-statistics speed"
+        ;;
+    *)
+        echo "Unknown command: $1"
+        echo "Use 'vaultscope-statistics help' for available commands"
+        exit 1
+        ;;
+esac
 EOF
     
-    chmod +x /usr/local/bin/statistics
-    print_done
+    chmod +x /usr/local/bin/vaultscope-statistics
     
-    print_success "CLI tool installed: 'statistics'"
+    # Create a shorter alias
+    ln -sf /usr/local/bin/vaultscope-statistics /usr/local/bin/statistics
+    
+    print_done
+    print_success "CLI tool installed: 'vaultscope-statistics' and 'statistics'"
 }
 
 # ============================================================================
@@ -792,7 +875,12 @@ show_completion() {
         print_subsection "CLI Commands"
         echo -e "  ${DOT} Create API key: ${CYAN}statistics apikey create \"name\" --admin${NC}"
         echo -e "  ${DOT} List API keys: ${CYAN}statistics apikey list${NC}"
+        echo -e "  ${DOT} Delete API key: ${CYAN}statistics apikey delete <uuid|key>${NC}"
         echo -e "  ${DOT} System info: ${CYAN}statistics sysinfo${NC}"
+        echo -e "  ${DOT} Speed test: ${CYAN}statistics speed${NC}"
+        echo -e "  ${DOT} Server control: ${CYAN}statistics server [start|stop|restart|status|logs]${NC}"
+        echo -e "  ${DOT} Client control: ${CYAN}statistics client [start|stop|restart|status|logs]${NC}"
+        echo -e "  ${DOT} Show help: ${CYAN}statistics help${NC}"
     fi
     
     echo ""
@@ -860,18 +948,7 @@ main() {
     install_dependencies
     install_nodejs
     install_application
-    setup_databases  # This creates apiKeys.json
-    
-    # Copy API keys to dist/server after build is complete
-    if [ "${INSTALL_OPTIONS[apikey]}" = true ] && [ -f "$INSTALL_DIR/apiKeys.json" ]; then
-        print_progress "Ensuring API keys are in correct locations"
-        mkdir -p "$INSTALL_DIR/dist/server"
-        cp "$INSTALL_DIR/apiKeys.json" "$INSTALL_DIR/dist/server/apiKeys.json"
-        if [ -d "$INSTALL_DIR/server" ]; then
-            cp "$INSTALL_DIR/apiKeys.json" "$INSTALL_DIR/server/apiKeys.json"
-        fi
-        print_done
-    fi
+    setup_databases  # This sets up SQLite database with all required tables
     
     setup_services
     configure_nginx

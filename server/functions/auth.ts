@@ -13,21 +13,7 @@ function authenticate(requiredPermissions?: (keyof Permissions)[]) {
     return async (req: AuthRequest, res: Response, next: NextFunction) => {
         req.requestStartTime = Date.now();
         
-        // TEMPORARILY DISABLED FOR TESTING - remove these lines to re-enable
-        req.apiKey = {
-            uuid: "test-uuid",
-            name: "Test Key",
-            key: "test-key",
-            permissions: {
-                viewStats: true,
-                createApiKey: true,
-                deleteApiKey: true,
-                viewApiKeys: true,
-                usePowerCommands: true
-            },
-            createdAt: new Date()
-        };
-        return next();
+        // Authentication is properly enabled
 
         const apiKey: string | undefined =
             (req.headers["x-api-key"] as string) ||
