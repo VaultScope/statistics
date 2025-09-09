@@ -383,14 +383,32 @@ build_application() {
         return 0
     }
     
+    # Try to build client with React 18 fallback
     if [[ -d "client" ]] && [[ -f "client/package.json" ]]; then
-        info "Building client..."
-        npm run client:build 2>&1 | tee -a "$LOG_FILE" || {
-            warning "Client build failed - client will not be available"
+        info "Building client interface..."
+        cd client
+        
+        # First try to build as-is
+        export NODE_OPTIONS="--max-old-space-size=4096"
+        npm run build 2>&1 | tee -a "$LOG_FILE" || {
+            warning "Client build failed with React 19, attempting fallback to React 18..."
+            
+            # Downgrade to React 18 for compatibility
+            npm install react@18.3.1 react-dom@18.3.1 @types/react@18.3.3 @types/react-dom@18.3.0 --save 2>&1 | tee -a "$LOG_FILE"
+            
+            # Try build again
+            npm run build 2>&1 | tee -a "$LOG_FILE" || {
+                error "Client build failed even with React 18"
+                warning "Client interface will not be available"
+                warning "You can try building manually: cd $INSTALL_DIR/client && npm run build"
+                # Mark client as failed
+                touch "$INSTALL_DIR/.client-build-failed"
+            }
         }
+        cd ..
     fi
     
-    success "Application built successfully"
+    success "Build process completed"
 }
 
 initialize_database() {
@@ -422,10 +440,14 @@ create_systemd_service() {
     local exec_command="/usr/bin/node dist/server/index.js"
     local node_env="production"
     
-    if [[ -f "$INSTALL_DIR/.skip-build" ]]; then
-        warning "Running in development mode due to build failure"
+    if [[ -f "$INSTALL_DIR/.skip-build" ]] || [[ ! -f "$INSTALL_DIR/dist/server/index.js" ]]; then
+        warning "Running in development mode"
         exec_command="/usr/bin/npx ts-node server/index.ts"
         node_env="development"
+        
+        # Ensure ts-node is available
+        cd "$INSTALL_DIR"
+        npm install --save-dev ts-node 2>&1 | tee -a "$LOG_FILE"
     fi
     
     # Server service
@@ -454,8 +476,8 @@ TimeoutStartSec=300
 WantedBy=multi-user.target
 EOF
 
-    # Client service (if client exists)
-    if [[ -d "$INSTALL_DIR/client" ]]; then
+    # Client service (only if client built successfully)
+    if [[ -d "$INSTALL_DIR/client/.next" ]] && [[ ! -f "$INSTALL_DIR/.client-build-failed" ]]; then
         cat > /etc/systemd/system/vaultscope-statistics-client.service << EOF
 [Unit]
 Description=VaultScope Statistics Client
@@ -493,7 +515,35 @@ start_services() {
     print_header "Starting Services"
     
     info "Starting server..."
-    systemctl start vaultscope-statistics-server
+    systemctl restart vaultscope-statistics-server
+    
+    # Wait for server to start
+    sleep 5
+    
+    # Check if server is running
+    if systemctl is-active --quiet vaultscope-statistics-server; then
+        success "Server is running"
+        
+        # Test API health endpoint
+        if curl -s -o /dev/null -w "%{http_code}" http://localhost:4000/health 2>/dev/null | grep -q "200"; then
+            success "Server API is responding correctly"
+        else
+            warning "Server is running but API health check failed"
+            info "Checking server logs..."
+            journalctl -u vaultscope-statistics-server -n 20 --no-pager
+        fi
+    else
+        error "Server failed to start"
+        info "Server logs:"
+        journalctl -u vaultscope-statistics-server -n 50 --no-pager
+        
+        # Try to diagnose common issues
+        if journalctl -u vaultscope-statistics-server | grep -q "Cannot find module"; then
+            error "Missing dependencies. Try: cd $INSTALL_DIR && npm install"
+        elif journalctl -u vaultscope-statistics-server | grep -q "EADDRINUSE"; then
+            error "Port 4000 is already in use"
+        fi
+    fi
     
     if [[ -f /etc/systemd/system/vaultscope-statistics-client.service ]]; then
         info "Starting client..."
