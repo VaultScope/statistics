@@ -11,7 +11,7 @@ IFS=$'\n\t'       # Set secure Internal Field Separator
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-readonly INSTALLER_VERSION="5.0.0"
+readonly INSTALLER_VERSION="5.1.0"
 readonly INSTALL_DIR="/var/www/vaultscope-statistics"
 readonly CONFIG_DIR="/etc/vaultscope-statistics"
 readonly LOG_DIR="/var/log/vaultscope-statistics"
@@ -330,13 +330,25 @@ install_dependencies() {
     
     cd "$INSTALL_DIR"
     
-    info "Installing server dependencies..."
-    npm ci --production 2>&1 | tee -a "$LOG_FILE" || npm install --production 2>&1 | tee -a "$LOG_FILE"
+    # Always use npm install to ensure lock file is in sync
+    info "Installing server dependencies (this may take a few minutes)..."
+    npm install 2>&1 | tee -a "$LOG_FILE" || {
+        error "Failed to install server dependencies"
+        return 1
+    }
+    
+    # Install ts-node globally for development mode fallback
+    info "Installing TypeScript runtime..."
+    npm install -g ts-node typescript 2>&1 | tee -a "$LOG_FILE" || {
+        warning "Failed to install ts-node globally"
+    }
     
     if [[ -d "client" ]]; then
         info "Installing client dependencies..."
         cd client
-        npm ci --production 2>&1 | tee -a "$LOG_FILE" || npm install --production 2>&1 | tee -a "$LOG_FILE"
+        npm install 2>&1 | tee -a "$LOG_FILE" || {
+            warning "Failed to install client dependencies"
+        }
         cd ..
     fi
     
@@ -348,16 +360,33 @@ build_application() {
     
     cd "$INSTALL_DIR"
     
-    info "Building server..."
+    # Check available memory
+    local available_mem=$(free -m | awk 'NR==2{print $7}')
+    local node_mem_limit=2048
+    
+    if [[ $available_mem -lt 1024 ]]; then
+        warning "Low memory detected (${available_mem}MB available)"
+        node_mem_limit=1024
+        info "Setting Node.js memory limit to ${node_mem_limit}MB"
+    else
+        info "Setting Node.js memory limit to ${node_mem_limit}MB"
+    fi
+    
+    # Export memory limit for Node.js
+    export NODE_OPTIONS="--max-old-space-size=${node_mem_limit}"
+    
+    info "Building server (this may take several minutes)..."
     npm run build 2>&1 | tee -a "$LOG_FILE" || {
-        error "Server build failed"
-        return 1
+        error "Server build failed - trying with development mode"
+        warning "Server will run in development mode without compilation"
+        touch .skip-build
+        return 0
     }
     
     if [[ -d "client" ]] && [[ -f "client/package.json" ]]; then
         info "Building client..."
         npm run client:build 2>&1 | tee -a "$LOG_FILE" || {
-            warning "Client build failed - continuing without client"
+            warning "Client build failed - client will not be available"
         }
     fi
     
@@ -389,6 +418,16 @@ initialize_database() {
 create_systemd_service() {
     print_header "Creating Systemd Services"
     
+    # Determine if we should run in dev mode (if build failed)
+    local exec_command="/usr/bin/node dist/server/index.js"
+    local node_env="production"
+    
+    if [[ -f "$INSTALL_DIR/.skip-build" ]]; then
+        warning "Running in development mode due to build failure"
+        exec_command="/usr/bin/npx ts-node server/index.ts"
+        node_env="development"
+    fi
+    
     # Server service
     cat > /etc/systemd/system/vaultscope-statistics-server.service << EOF
 [Unit]
@@ -400,13 +439,16 @@ Type=simple
 User=www-data
 Group=www-data
 WorkingDirectory=$INSTALL_DIR
-Environment="NODE_ENV=production"
+Environment="NODE_ENV=${node_env}"
 Environment="PORT=4000"
-ExecStart=/usr/bin/node dist/server/index.js
+Environment="NODE_OPTIONS=--max-old-space-size=1024"
+ExecStart=${exec_command}
 Restart=always
 RestartSec=10
 StandardOutput=append:$LOG_DIR/server.log
 StandardError=append:$LOG_DIR/server-error.log
+LimitNOFILE=65536
+TimeoutStartSec=300
 
 [Install]
 WantedBy=multi-user.target
