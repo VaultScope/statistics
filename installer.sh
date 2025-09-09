@@ -11,7 +11,7 @@ IFS=$'\n\t'
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-readonly INSTALLER_VERSION="6.0.0"
+readonly INSTALLER_VERSION="6.1.0"
 readonly INSTALL_DIR="/var/www/vaultscope-statistics"
 readonly CONFIG_DIR="/etc/vaultscope-statistics"
 readonly LOG_DIR="/var/log/vaultscope-statistics"
@@ -647,8 +647,9 @@ Usage: $0 [OPTIONS]
 
 Options:
   -u, --uninstall     Uninstall VaultScope Statistics
-  -q, --quiet         Suppress output
-  -y, --yes           Auto-answer yes to all prompts
+  -q, --quiet         Suppress output (skips Nginx/SSL config)
+  -y, --yes           Auto-answer yes to installation prompts
+                      (still asks for Nginx/SSL configuration)
   --skip-deps         Skip system dependencies
   -b, --branch BRANCH Use specific git branch
   -h, --help          Show this help
@@ -715,8 +716,12 @@ main() {
     create_systemd_service
     start_services
     
-    # Configure Nginx (with proper terminal input)
-    if [[ "$QUIET_MODE" != true ]] && [[ "$AUTO_YES" != true ]]; then
+    # ALWAYS ask for Nginx configuration, even with --yes flag
+    if [[ "$QUIET_MODE" != true ]]; then
+        echo ""
+        echo "========================================"
+        echo "Nginx & SSL Configuration"
+        echo "========================================"
         echo ""
         echo -n "Do you want to configure Nginx reverse proxy? [y/N]: "
         
@@ -732,7 +737,7 @@ main() {
             configure_nginx
             
             echo ""
-            echo -n "Do you want to configure SSL certificates? [y/N]: "
+            echo -n "Do you want to configure SSL certificates (Let's Encrypt)? [y/N]: "
             
             local ssl_response=""
             if [[ -t 0 ]]; then
