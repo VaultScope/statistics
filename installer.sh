@@ -11,7 +11,7 @@ IFS=$'\n\t'       # Set secure Internal Field Separator
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-readonly INSTALLER_VERSION="5.1.0"
+readonly INSTALLER_VERSION="5.2.0"
 readonly INSTALL_DIR="/var/www/vaultscope-statistics"
 readonly CONFIG_DIR="/etc/vaultscope-statistics"
 readonly LOG_DIR="/var/log/vaultscope-statistics"
@@ -522,6 +522,213 @@ start_services() {
 }
 
 # ============================================================================
+# NGINX CONFIGURATION
+# ============================================================================
+configure_nginx() {
+    print_header "Configuring Nginx"
+    
+    # Check if nginx is installed
+    if ! check_command nginx; then
+        info "Installing Nginx..."
+        case "$OS" in
+            ubuntu|debian)
+                apt-get install -y nginx
+                ;;
+            fedora|rhel|centos)
+                yum install -y nginx
+                ;;
+            *)
+                warning "Please install Nginx manually"
+                return 1
+                ;;
+        esac
+    fi
+    
+    # Ask for domain names
+    local api_domain=""
+    local app_domain=""
+    
+    if [[ "$AUTO_YES" != true ]]; then
+        echo ""
+        read -p "Enter domain for API (e.g., api.example.com) or press Enter to skip: " api_domain
+        read -p "Enter domain for Web App (e.g., app.example.com) or press Enter to skip: " app_domain
+    fi
+    
+    # Configure API domain
+    if [[ -n "$api_domain" ]]; then
+        info "Configuring Nginx for API: $api_domain"
+        cat > /etc/nginx/sites-available/vaultscope-api << EOF
+server {
+    listen 80;
+    server_name $api_domain;
+    
+    location / {
+        proxy_pass http://localhost:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+        
+        # Timeouts
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+}
+EOF
+        ln -sf /etc/nginx/sites-available/vaultscope-api /etc/nginx/sites-enabled/
+        success "API Nginx configuration created"
+    fi
+    
+    # Configure App domain
+    if [[ -n "$app_domain" ]] && [[ -d "$INSTALL_DIR/client" ]]; then
+        info "Configuring Nginx for Web App: $app_domain"
+        cat > /etc/nginx/sites-available/vaultscope-app << EOF
+server {
+    listen 80;
+    server_name $app_domain;
+    
+    location / {
+        proxy_pass http://localhost:4001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+}
+EOF
+        ln -sf /etc/nginx/sites-available/vaultscope-app /etc/nginx/sites-enabled/
+        success "App Nginx configuration created"
+    fi
+    
+    # Test and reload nginx
+    if nginx -t 2>/dev/null; then
+        systemctl reload nginx
+        success "Nginx configured and reloaded"
+    else
+        error "Nginx configuration test failed"
+        return 1
+    fi
+    
+    # Store domains for SSL configuration
+    echo "$api_domain" > "$STATE_DIR/api_domain"
+    echo "$app_domain" > "$STATE_DIR/app_domain"
+}
+
+# ============================================================================
+# SSL CONFIGURATION
+# ============================================================================
+configure_ssl() {
+    print_header "Configuring SSL Certificates"
+    
+    # Check if certbot is installed
+    if ! check_command certbot; then
+        info "Installing Certbot..."
+        case "$OS" in
+            ubuntu|debian)
+                apt-get install -y certbot python3-certbot-nginx
+                ;;
+            fedora|rhel|centos)
+                yum install -y certbot python3-certbot-nginx
+                ;;
+            *)
+                warning "Please install Certbot manually"
+                return 1
+                ;;
+        esac
+    fi
+    
+    # Get domains from state files or ask
+    local api_domain=""
+    local app_domain=""
+    
+    if [[ -f "$STATE_DIR/api_domain" ]]; then
+        api_domain=$(cat "$STATE_DIR/api_domain")
+    fi
+    
+    if [[ -f "$STATE_DIR/app_domain" ]]; then
+        app_domain=$(cat "$STATE_DIR/app_domain")
+    fi
+    
+    if [[ -z "$api_domain" ]] && [[ -z "$app_domain" ]]; then
+        warning "No domains configured. Skipping SSL setup."
+        info "You can run 'certbot --nginx' later to configure SSL"
+        return 0
+    fi
+    
+    # Ask for email
+    local email=""
+    if [[ "$AUTO_YES" != true ]]; then
+        read -p "Enter email for SSL certificate notifications: " email
+    fi
+    
+    if [[ -z "$email" ]]; then
+        warning "No email provided. Using --register-unsafely-without-email"
+        local email_arg="--register-unsafely-without-email"
+    else
+        local email_arg="--email $email"
+    fi
+    
+    # Configure SSL for API domain
+    if [[ -n "$api_domain" ]]; then
+        info "Configuring SSL for $api_domain..."
+        certbot --nginx -d "$api_domain" $email_arg --non-interactive --agree-tos --redirect || {
+            warning "Failed to configure SSL for $api_domain"
+        }
+    fi
+    
+    # Configure SSL for App domain
+    if [[ -n "$app_domain" ]]; then
+        info "Configuring SSL for $app_domain..."
+        certbot --nginx -d "$app_domain" $email_arg --non-interactive --agree-tos --redirect || {
+            warning "Failed to configure SSL for $app_domain"
+        }
+    fi
+    
+    # Setup auto-renewal
+    if [[ -f /etc/systemd/system/snap.certbot.renew.timer ]] || systemctl list-timers | grep -q certbot; then
+        success "SSL auto-renewal is already configured"
+    else
+        info "Setting up SSL auto-renewal..."
+        cat > /etc/systemd/system/certbot-renew.service << EOF
+[Unit]
+Description=Certbot Renewal
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/certbot renew --quiet --deploy-hook "systemctl reload nginx"
+EOF
+
+        cat > /etc/systemd/system/certbot-renew.timer << EOF
+[Unit]
+Description=Run certbot twice daily
+
+[Timer]
+OnCalendar=*-*-* 00,12:00:00
+RandomizedDelaySec=3600
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+        
+        systemctl daemon-reload
+        systemctl enable certbot-renew.timer
+        systemctl start certbot-renew.timer
+        success "SSL auto-renewal configured"
+    fi
+}
+
+# ============================================================================
 # UNINSTALL FUNCTIONS
 # ============================================================================
 uninstall_application() {
@@ -581,12 +788,24 @@ show_summary() {
     if [[ -f /etc/systemd/system/vaultscope-statistics-client.service ]]; then
         echo "  • Client: http://localhost:4001"
     fi
+    
+    # Show configured domains
+    if [[ -f "$STATE_DIR/api_domain" ]]; then
+        local api_domain=$(cat "$STATE_DIR/api_domain")
+        [[ -n "$api_domain" ]] && echo "  • API Domain: https://$api_domain"
+    fi
+    if [[ -f "$STATE_DIR/app_domain" ]]; then
+        local app_domain=$(cat "$STATE_DIR/app_domain")
+        [[ -n "$app_domain" ]] && echo "  • App Domain: https://$app_domain"
+    fi
+    
     echo ""
     echo "Useful Commands:"
     echo "  • Check status: systemctl status vaultscope-statistics-server"
     echo "  • View logs: journalctl -u vaultscope-statistics-server -f"
     echo "  • Restart: systemctl restart vaultscope-statistics-server"
     echo "  • API keys: cd $INSTALL_DIR && npm run apikey list"
+    echo "  • SSL renewal: certbot renew"
     echo ""
     echo -e "${YELLOW}⚠${NC} Don't forget to save the admin API key shown above!"
     echo ""
@@ -702,6 +921,18 @@ main() {
     initialize_database
     create_systemd_service
     start_services
+    
+    # Configure Nginx if not in quiet mode
+    if [[ "$QUIET_MODE" != true ]]; then
+        if confirm "Do you want to configure Nginx reverse proxy?"; then
+            configure_nginx
+            
+            # Configure SSL if Nginx was configured
+            if confirm "Do you want to configure SSL certificates (Let's Encrypt)?"; then
+                configure_ssl
+            fi
+        fi
+    fi
     
     # Show summary
     show_summary
