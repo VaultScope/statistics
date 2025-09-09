@@ -67,7 +67,6 @@ export class ApiKeyRepository {
   async validateApiKey(key: string): Promise<ApiKeyWithPermissions | null> {
     const [apiKey] = await db.select().from(apiKeys)
       .where(eq(apiKeys.key, key))
-      .where(eq(apiKeys.isActive, true))
       .limit(1);
     
     if (!apiKey) {
@@ -78,7 +77,7 @@ export class ApiKeyRepository {
     await db.update(apiKeys)
       .set({ 
         lastUsed: new Date().toISOString(),
-        usageCount: sql`${apiKeys.usageCount} + 1`
+        usageCount: apiKey.usageCount + 1
       })
       .where(eq(apiKeys.id, apiKey.id));
 
@@ -166,34 +165,58 @@ export class ApiKeyRepository {
   }
 
   // Get API key logs
-  async getApiKeyLogs(apiKeyId?: string, limit: number = 100): Promise<ApiKeyLog[]> {
+  async getApiKeyLogs(apiKeyId?: string | number, limit: number = 100): Promise<ApiKeyLog[]> {
     if (apiKeyId) {
+      // Convert string UUID to numeric ID if needed
+      let numericId: number;
+      if (typeof apiKeyId === 'string') {
+        const key = await this.getApiKey(apiKeyId);
+        if (!key) return [];
+        numericId = key.id;
+      } else {
+        numericId = apiKeyId;
+      }
+      
       return await db.select().from(apiKeyLogs)
-        .where(eq(apiKeyLogs.apiKeyId, apiKeyId))
-        .orderBy(desc(apiKeyLogs.timestamp))
+        .where(eq(apiKeyLogs.apiKeyId, numericId))
+        .orderBy(desc(apiKeyLogs.createdAt))
         .limit(limit);
     }
     
     return await db.select().from(apiKeyLogs)
-      .orderBy(desc(apiKeyLogs.timestamp))
+      .orderBy(desc(apiKeyLogs.createdAt))
       .limit(limit);
   }
 
   // Get API key statistics
   async getApiKeyStats(apiKeyId: string) {
+    // Convert string UUID to numeric ID
+    const key = await this.getApiKey(apiKeyId);
+    if (!key) {
+      return {
+        totalRequests: 0,
+        statusCodes: {},
+        endpoints: {},
+        avgResponseTime: 0,
+        lastUsed: null
+      };
+    }
+    
     const logs = await db.select().from(apiKeyLogs)
-      .where(eq(apiKeyLogs.apiKeyId, apiKeyId))
-      .orderBy(desc(apiKeyLogs.timestamp))
+      .where(eq(apiKeyLogs.apiKeyId, key.id))
+      .orderBy(desc(apiKeyLogs.createdAt))
       .limit(1000);
 
     const totalRequests = logs.length;
     const statusCodes = logs.reduce((acc, log) => {
-      acc[log.statusCode] = (acc[log.statusCode] || 0) + 1;
+      if (log.statusCode !== null) {
+        acc[log.statusCode] = (acc[log.statusCode] || 0) + 1;
+      }
       return acc;
     }, {} as Record<number, number>);
 
     const endpoints = logs.reduce((acc, log) => {
-      const endpoint = `${log.method} ${log.endpoint}`;
+      const endpoint = `${log.method} ${log.path}`;
       acc[endpoint] = (acc[endpoint] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);
@@ -205,15 +228,19 @@ export class ApiKeyRepository {
       statusCodes,
       endpoints,
       avgResponseTime,
-      lastUsed: logs[0]?.timestamp
+      lastUsed: logs[0]?.createdAt
     };
   }
 
   // Clear API logs
   async clearApiLogs(apiKeyId?: string): Promise<number> {
     if (apiKeyId) {
+      // Convert string UUID to numeric ID
+      const key = await this.getApiKey(apiKeyId);
+      if (!key) return 0;
+      
       const result = await db.delete(apiKeyLogs)
-        .where(eq(apiKeyLogs.apiKeyId, apiKeyId));
+        .where(eq(apiKeyLogs.apiKeyId, key.id));
       return result.changes;
     }
     
@@ -229,14 +256,14 @@ export class ApiKeyRepository {
         const existing = await this.getApiKey(key.uuid || key.id);
         if (!existing) {
           await db.insert(apiKeys).values({
-            id: key.uuid || key.id || crypto.randomUUID(),
+            uuid: key.uuid || key.id || crypto.randomUUID(),
             name: key.name,
             key: key.key,
             permissions: JSON.stringify(key.permissions),
             isActive: true,
             createdAt: key.createdAt || new Date().toISOString(),
             updatedAt: new Date().toISOString(),
-            lastUsedAt: key.lastUsedAt || null
+            lastUsed: key.lastUsed || null
           });
         }
       } catch (error) {
