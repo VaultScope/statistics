@@ -1,51 +1,8 @@
 import { Request, Response, NextFunction } from "express";
-import { promises as fs } from "fs";
-import path from "path";
 import Key from "../types/api/keys/key";
 import Permissions from "../types/api/keys/permissions";
 import { logApiRequest } from "./logs/apiLogger";
-
-// Look for apiKeys.json in the root project directory
-const apiKeysPath = path.resolve(process.cwd(), "apiKeys.json");
-
-// Cache and reload every 15s with thread-safe loading
-let cachedKeys: Key[] = [];
-let lastLoad = 0;
-let loadingPromise: Promise<Key[]> | null = null;
-const CACHE_TTL = 15 * 1000;
-
-async function loadKeys(): Promise<Key[]> {
-    const now = Date.now();
-    
-    // Return cached keys if still valid
-    if (cachedKeys.length > 0 && now - lastLoad < CACHE_TTL) {
-        return cachedKeys;
-    }
-    
-    // If already loading, wait for that promise
-    if (loadingPromise) {
-        return loadingPromise;
-    }
-
-    // Start new loading process
-    loadingPromise = (async () => {
-        try {
-            const data = await fs.readFile(apiKeysPath, "utf-8");
-            const newKeys = JSON.parse(data) as Key[];
-            cachedKeys = newKeys;
-            lastLoad = Date.now();
-            return newKeys;
-        } catch (error) {
-            console.error('Failed to load API keys:', error);
-            // Return existing cache if available, otherwise empty array
-            return cachedKeys.length > 0 ? cachedKeys : [];
-        } finally {
-            loadingPromise = null;
-        }
-    })();
-    
-    return loadingPromise;
-}
+import { apiKeyRepository } from "../db/repositories/apiKeyRepository";
 
 interface AuthRequest extends Request {
     apiKey?: Key;
@@ -80,10 +37,10 @@ function authenticate(requiredPermissions?: (keyof Permissions)[]) {
             });
         }
 
-        const keys = await loadKeys();
-        const foundKey = keys.find((k) => k.key === apiKey);
+        // Validate API key using database
+        const validatedKey = await apiKeyRepository.validateApiKey(apiKey);
 
-        if (!foundKey) {
+        if (!validatedKey) {
             const statusCode = 401;
             void logApiRequest(
                 "invalid",
@@ -101,6 +58,15 @@ function authenticate(requiredPermissions?: (keyof Permissions)[]) {
                 message: "Invalid API key.",
             });
         }
+
+        // Convert database key to expected format
+        const foundKey: Key = {
+            uuid: validatedKey.uuid!,
+            name: validatedKey.name,
+            key: validatedKey.key,
+            permissions: validatedKey.permissions,
+            createdAt: new Date(validatedKey.createdAt)
+        };
 
         if (requiredPermissions && requiredPermissions.length > 0) {
             const missingPermissions = requiredPermissions.filter(

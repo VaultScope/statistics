@@ -1,12 +1,6 @@
 import Key from "../../types/api/keys/key";
 import Permissions from "@server/types/api/keys/permissions";
-import * as crypto from "crypto";
-import { promises as fs } from "fs";
-import path from "path";
-
-import makeid from "./generate";
-
-const apiKeysPath = path.resolve(process.cwd(), "apiKeys.json");
+import { apiKeyRepository } from "../../db/repositories/apiKeyRepository";
 
 async function createApiKey(keyname: string, permissions: Permissions): Promise<Key> {
     // Ensure all permission fields are present
@@ -18,25 +12,15 @@ async function createApiKey(keyname: string, permissions: Permissions): Promise<
         usePowerCommands: permissions.usePowerCommands ?? false
     };
     
-    const key: Key = {
-        uuid: crypto.randomUUID(),
-        name: keyname,
-        key: makeid(),
-        permissions: completePermissions,
-        createdAt: new Date()
+    const apiKey = await apiKeyRepository.createApiKey(keyname, completePermissions);
+    
+    return {
+        uuid: apiKey.uuid!,
+        name: apiKey.name,
+        key: apiKey.key,
+        permissions: apiKey.permissions,
+        createdAt: new Date(apiKey.createdAt)
     };
-
-    let keys: Key[] = [];
-    try {
-        const data = await fs.readFile(apiKeysPath, "utf-8");
-        keys = JSON.parse(data);
-    } catch (err) {
-        keys = [];
-    }
-    keys.push(key);
-    await fs.writeFile(apiKeysPath, JSON.stringify(keys, null, 4), "utf-8");
-
-    return key;
 }
 
 export default createApiKey;

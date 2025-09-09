@@ -1,19 +1,6 @@
 import rateLimit from "express-rate-limit";
 import { Request, Response, NextFunction } from "express";
-import { promises as fs } from "fs";
-import path from "path";
-import Key from "../types/api/keys/key";
-
-const apiKeysPath = path.resolve(process.cwd(), "apiKeys.json");
-
-async function loadKeys(): Promise<Key[]> {
-    try {
-        const data = await fs.readFile(apiKeysPath, "utf-8");
-        return JSON.parse(data);
-    } catch (err) {
-        return [];
-    }
-}
+import { apiKeyRepository } from "../db/repositories/apiKeyRepository";
 
 // Rate limiter for requests without valid API key - 10 requests per minute
 const invalidKeyLimiter = rateLimit({
@@ -46,10 +33,9 @@ const limiter = async (req: Request, res: Response, next: NextFunction) => {
                         (req.query.apiKey as string);
 
   if (apiKey) {
-    const keys = await loadKeys();
-    const foundKey = keys.find(k => k.key === apiKey);
+    const validKey = await apiKeyRepository.validateApiKey(apiKey);
     
-    if (foundKey) {
+    if (validKey) {
       // Valid API key found - skip rate limiting
       return next();
     }

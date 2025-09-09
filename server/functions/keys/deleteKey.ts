@@ -1,28 +1,15 @@
-import { promises as fs } from "fs";
-import path from "path";
-import Key from "../../types/api/keys/key";
+import { apiKeyRepository } from "../../db/repositories/apiKeyRepository";
 
-const apiKeysPath = path.resolve(process.cwd(), "apiKeys.json");
 export async function deleteApiKey(identifier: string): Promise<boolean> {
     try {
-        let keys: Key[] = [];
-        try {
-            const data = await fs.readFile(apiKeysPath, "utf-8");
-            keys = JSON.parse(data);
-        } catch (err) {
+        // First try to find the key to get its ID
+        const key = await apiKeyRepository.getApiKey(identifier);
+        if (!key) {
             return false;
         }
-
-        const originalLength = keys.length;
-        keys = keys.filter(k => k.uuid !== identifier && k.key !== identifier);
-
-        if (keys.length === originalLength) {
-            return false;
-        }
-
-        await fs.writeFile(apiKeysPath, JSON.stringify(keys, null, 4), "utf-8");
-        return true;
-
+        
+        // Delete the key (soft delete by default)
+        return await apiKeyRepository.deleteApiKey(identifier);
     } catch (err) {
         console.error("Error when deleting API key:", err);
         return false;
