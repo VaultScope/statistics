@@ -1,6 +1,6 @@
 import Key from "../../types/api/keys/key";
 import Permissions from "@server/types/api/keys/permissions";
-import { apiKeyRepository } from "../../db/repositories/apiKeyRepositoryMock";
+import { apiKeyRepository } from "../../db/repositories/apiKeyRepository";
 
 async function createApiKey(keyname: string, permissions: Permissions): Promise<Key> {
     // Ensure all permission fields are present

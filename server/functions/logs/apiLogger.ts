@@ -1,5 +1,5 @@
 import { ApiLog, ApiKeyStats } from '../../types/api/logs/apiLog';
-import { apiKeyRepository } from '../../db/repositories/apiKeyRepositoryMock';
+import { apiKeyRepository } from '../../db/repositories/apiKeyRepository';
 
 export async function logApiRequest(
     apiKeyId: string,
@@ -35,15 +35,15 @@ export async function getApiLogs(
         
         // Convert to ApiLog format
         return logs.map(log => ({
-            id: log.id,
-            apiKeyId: log.apiKeyId,
+            id: log.id.toString(),
+            apiKeyId: log.apiKeyId.toString(),
             apiKeyName: '', // We'll need to fetch this if needed
-            endpoint: log.endpoint,
+            endpoint: log.path,
             method: log.method,
-            statusCode: log.statusCode,
-            ipAddress: log.ipAddress,
-            userAgent: log.userAgent,
-            timestamp: new Date(log.timestamp),
+            statusCode: log.statusCode || 0,
+            ipAddress: log.ipAddress || '',
+            userAgent: log.userAgent || undefined,
+            timestamp: new Date(log.createdAt),
             responseTime: log.responseTime || undefined
         }));
     } catch (error) {

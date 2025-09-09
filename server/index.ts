@@ -69,9 +69,33 @@ app.use(compressionMiddleware);
 // Apply performance monitoring middleware
 app.use(performanceMiddleware);
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(cors());
+// Security headers middleware
+app.use((req: Request, res: Response, next) => {
+    // Security headers
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    
+    // Remove server header for security
+    res.removeHeader('X-Powered-By');
+    
+    next();
+});
+
+// Configure CORS with environment settings
+const corsOptions = {
+    origin: config.security.corsOrigin === '*' ? true : config.security.corsOrigin.split(',').map(o => o.trim()),
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key', 'x-client-id'],
+    maxAge: 86400 // 24 hours
+};
+
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(cors(corsOptions));
 app.use(limiter);
 
 // Mount alerts router
@@ -754,8 +778,9 @@ app.delete("/network/sniffer/logs", authenticate(["viewStats"]), (req: AuthReque
 app.listen(port, () => {
     console.log(`${colors.bgGreen}${colors.bright} SERVER STARTED ${colors.reset}`);
     console.log(`${colors.cyan}[SERVER]${colors.reset} Running at ${colors.bright}http://localhost:${port}${colors.reset}`);
-    console.log(`${colors.yellow}[INFO]${colors.reset} Trust proxy: loopback | CORS: enabled | Rate limiting: active`);
+    console.log(`${colors.yellow}[INFO]${colors.reset} Trust proxy: ${config.server.trustProxy} | CORS: enabled | Rate limiting: active`);
     console.log(`${colors.blue}[PERF]${colors.reset} Compression: enabled | Performance monitoring: active`);
+    console.log(`${colors.green}[SECURITY]${colors.reset} Security headers enabled | CORS origin: ${config.security.corsOrigin}`);
     
     // Start the alert engine
     alertEngine.start();

@@ -1,6 +1,6 @@
 import rateLimit from "express-rate-limit";
 import { Request, Response, NextFunction } from "express";
-import { apiKeyRepository } from "../db/repositories/apiKeyRepositoryMock";
+import { apiKeyRepository } from "../db/repositories/apiKeyRepository";
 
 // Rate limiter for requests without valid API key - 10 requests per minute
 const invalidKeyLimiter = rateLimit({

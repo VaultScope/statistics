@@ -1,5 +1,5 @@
 import Key from "../../types/api/keys/key";
-import { apiKeyRepository } from "../../db/repositories/apiKeyRepositoryMock";
+import { apiKeyRepository } from "../../db/repositories/apiKeyRepository";
 
 const listKeys = {
     list: async (): Promise<Key[]> => {

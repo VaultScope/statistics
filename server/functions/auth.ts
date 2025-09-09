@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import Key from "../types/api/keys/key";
 import Permissions from "../types/api/keys/permissions";
 import { logApiRequest } from "./logs/apiLogger";
-import { apiKeyRepository } from "../db/repositories/apiKeyRepositoryMock";
+import { apiKeyRepository } from "../db/repositories/apiKeyRepository";
 
 interface AuthRequest extends Request {
     apiKey?: Key;

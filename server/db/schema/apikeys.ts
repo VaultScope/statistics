@@ -13,7 +13,7 @@ export const apiKeys = sqliteTable('api_keys', {
   usageCount: integer('usage_count').notNull().default(0),
   rateLimit: integer('rate_limit').default(1000), // requests per hour
   expiresAt: text('expires_at'), // optional expiration
-  createdBy: integer('created_by').references(() => users.id, { onDelete: 'set null' }),
+  createdBy: integer('created_by'), // Foreign key to users.id but no explicit reference to avoid circular import
   metadata: text('metadata'), // JSON string for custom fields
   createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text('updated_at').notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -43,8 +43,7 @@ export const apiKeyLogs = sqliteTable('api_key_logs', {
   pathIdx: index('idx_keylogs_path').on(table.path),
 }));
 
-// Import for foreign key reference
-import { users } from './users';
+// Note: Foreign key references to users are handled at the application level to avoid circular imports
 
 export type ApiKey = typeof apiKeys.$inferSelect;
 export type NewApiKey = typeof apiKeys.$inferInsert;

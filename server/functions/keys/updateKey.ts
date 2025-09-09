@@ -1,6 +1,6 @@
 import Key from "../../types/api/keys/key";
 import Permissions from "../../types/api/keys/permissions";
-import { apiKeyRepository } from "../../db/repositories/apiKeyRepositoryMock";
+import { apiKeyRepository } from "../../db/repositories/apiKeyRepository";
 
 export async function updateApiKeyPermissions(identifier: string, permissions: Permissions): Promise<boolean> {
     try {
