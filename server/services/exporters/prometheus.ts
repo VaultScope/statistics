@@ -245,7 +245,7 @@ export class PrometheusExporter {
               container: container.name,
               image: container.image
             },
-            container.cpuPercent
+            container.cpu || 0
           );
           this.metrics.get('container_memory').set(
             {
@@ -253,7 +253,7 @@ export class PrometheusExporter {
               container: container.name,
               image: container.image
             },
-            container.memUsage
+            container.mem || 0
           );
         });
       } catch (error) {
@@ -280,7 +280,7 @@ export class PrometheusExporter {
           {
             node: node.name,
             service: node.name,
-            type: node.type
+            type: 'node'
           },
           node.status === 'online' ? 1 : 0
         );
@@ -292,7 +292,7 @@ export class PrometheusExporter {
 
   private async collectAlertMetrics() {
     try {
-      const activeAlerts = await db.select().from(alerts).where(eq(alerts.status, 'active'));
+      const activeAlerts = await db.select().from(alerts).where(eq(alerts.isEnabled, true));
       
       const criticalAlerts = activeAlerts.filter(a => a.severity === 'critical').length;
       const warningAlerts = activeAlerts.filter(a => a.severity === 'warning').length;

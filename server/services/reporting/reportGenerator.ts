@@ -3,7 +3,7 @@ import { Parser } from 'json2csv';
 import fs from 'fs';
 import path from 'path';
 import nodemailer from 'nodemailer';
-import { influxDB } from '../influxdb';
+import influxDB from '../influxdb';
 import { db } from '../../db/index';
 import { nodes, alerts, alertHistory } from '../../db/index';
 import { between, eq } from 'drizzle-orm';
@@ -31,7 +31,7 @@ export class ReportGenerator {
 
   constructor() {
     if (process.env.SMTP_HOST) {
-      this.emailTransporter = nodemailer.createTransporter({
+      this.emailTransporter = nodemailer.createTransport({
         host: process.env.SMTP_HOST,
         port: parseInt(process.env.SMTP_PORT || '587'),
         secure: process.env.SMTP_SECURE === 'true',
@@ -84,7 +84,7 @@ export class ReportGenerator {
     const alertData = await db.select()
       .from(alertHistory)
       .where(between(
-        alertHistory.timestamp,
+        alertHistory.triggeredAt,
         config.startDate.toISOString(),
         config.endDate.toISOString()
       ));

@@ -1,6 +1,6 @@
 import passport from 'passport';
 import { Strategy as LocalStrategy } from 'passport-local';
-import { Strategy as LdapStrategy } from 'passport-ldapauth';
+import LdapStrategy from 'passport-ldapauth';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import { Strategy as GitHubStrategy } from 'passport-github2';
 import { OIDCStrategy } from 'passport-azure-ad';

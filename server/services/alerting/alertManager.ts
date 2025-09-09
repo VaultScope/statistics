@@ -169,10 +169,10 @@ export class AlertManager {
       if (triggered) {
         // Check if alert is already active
         const activeAlert = await db.select()
-          .from(alerts)
+          .from(alertHistory)
           .where(and(
-            eq(alerts.ruleId, rule.id),
-            eq(alerts.status, 'active')
+            eq(alertHistory.alertId, rule.id),
+            eq(alertHistory.resolved, false)
           ))
           .get();
 
@@ -194,10 +194,10 @@ export class AlertManager {
       } else {
         // Check if there's an active alert to resolve
         const activeAlert = await db.select()
-          .from(alerts)
+          .from(alertHistory)
           .where(and(
-            eq(alerts.ruleId, rule.id),
-            eq(alerts.status, 'active')
+            eq(alertHistory.alertId, rule.id),
+            eq(alertHistory.resolved, false)
           ))
           .get();
 

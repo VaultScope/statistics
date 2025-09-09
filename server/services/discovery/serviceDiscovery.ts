@@ -256,14 +256,14 @@ export class ServiceDiscovery {
 
     try {
       const response = await axios.get(`${this.config.consulUrl}/v1/catalog/services`);
-      const services = Object.keys(response.data);
+      const services = Object.keys(response.data as Record<string, any>);
 
       for (const serviceName of services) {
         const serviceResponse = await axios.get(
           `${this.config.consulUrl}/v1/catalog/service/${serviceName}`
         );
 
-        for (const instance of serviceResponse.data) {
+        for (const instance of serviceResponse.data as any[]) {
           const serviceId = `consul-${serviceName}-${instance.ServiceID}`;
           
           this.services.set(serviceId, {
@@ -477,32 +477,27 @@ export class ServiceDiscovery {
       try {
         const existingNode = await db.select()
           .from(nodes)
-          .where(eq(nodes.id, id))
+          .where(eq(nodes.name, service.name))
           .get();
 
         if (existingNode) {
           await db.update(nodes)
             .set({
               name: service.name,
-              host: service.host,
-              port: service.port,
+              url: `${service.type}://${service.host}:${service.port}`,
               status: service.status === 'healthy' ? 'online' : 'offline',
-              lastSeen: service.lastSeen.toISOString(),
+              lastCheck: service.lastSeen.toISOString(),
               metadata: JSON.stringify(service.metadata),
               updatedAt: new Date().toISOString()
             })
-            .where(eq(nodes.id, id));
+            .where(eq(nodes.name, service.name));
         } else {
           await db.insert(nodes).values({
-            id,
             name: service.name,
-            type: service.type,
-            host: service.host,
-            port: service.port,
+            url: `${service.type}://${service.host}:${service.port}`,
             status: service.status === 'healthy' ? 'online' : 'offline',
-            lastSeen: service.lastSeen.toISOString(),
+            lastCheck: service.lastSeen.toISOString(),
             metadata: JSON.stringify(service.metadata),
-            tags: JSON.stringify([]),
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
           });
@@ -586,7 +581,7 @@ export class ServiceDiscovery {
       this.healthCheckIntervals.delete(id);
     }
     
-    await db.delete(nodes).where(eq(nodes.id, id));
+    await db.delete(nodes).where(eq(nodes.name, id));
   }
 
   public stop(): void {
