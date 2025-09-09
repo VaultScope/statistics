@@ -11,6 +11,7 @@ export interface SessionUser {
   username: string;
   firstName: string;
   roleId: string;
+  role: string; // Added for compatibility
 }
 
 export async function createSession(user: SessionUser): Promise<string> {

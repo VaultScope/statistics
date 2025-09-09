@@ -24,6 +24,7 @@ export interface User {
   firstName: string;
   password: string;
   roleId: string; // Changed from role to roleId
+  role: string; // Added for compatibility
   email?: string;
   isActive: boolean;
   lastLogin?: string;
@@ -153,6 +154,7 @@ export const createUser = async (
     firstName,
     password: hashedPassword,
     roleId: isFirstUser ? 'admin' : roleId,
+    role: isFirstUser ? 'admin' : roleId, // Added for compatibility
     email,
     isActive: true,
     createdAt: new Date().toISOString()
