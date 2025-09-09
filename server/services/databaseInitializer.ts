@@ -1,8 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
-import { db, sqlite } from '../db';
-import { roles, categories, users, nodes, apiKeys } from '../db';
+import { db, sqlite } from '../db/index';
+import { roles, categories, users, nodes, apiKeys } from '../db/index';
 import { eq } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import bcrypt from 'bcryptjs';
@@ -97,7 +97,7 @@ class DatabaseInitializer {
       }
 
       // Run Drizzle migrations
-      await migrate(db, { migrationsFolder: migrationsPath });
+      await migrate(db, { migrationsFolder: './server/db/migrations' });
       console.log(`${colors.green}[DB-INIT]${colors.reset} Database migrations completed`);
       return true;
     } catch (error) {
@@ -110,7 +110,7 @@ class DatabaseInitializer {
         execSync('npm run db:generate', { stdio: 'inherit' });
         
         // Retry migration
-        await migrate(db, { migrationsFolder: migrationsPath });
+        await migrate(db, { migrationsFolder: './server/db/migrations' });
         console.log(`${colors.green}[DB-INIT]${colors.reset} Database migrations completed after generation`);
         return true;
       } catch (retryError) {
@@ -234,8 +234,7 @@ class DatabaseInitializer {
         
         await db.insert(users).values({
           username: 'admin',
-          firstName: 'System',
-          lastName: 'Administrator',
+          firstName: 'Administrator',
           password: hashedPassword,
           roleId: 'admin',
           email: 'admin@localhost',
@@ -359,7 +358,6 @@ class DatabaseInitializer {
               await db.insert(users).values({
                 username: user.username,
                 firstName: user.firstName || user.username,
-                lastName: user.lastName || '',
                 password: user.password, // Already hashed
                 roleId: user.roleId || user.role || 'viewer',
                 email: user.email || null,

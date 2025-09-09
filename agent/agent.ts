@@ -91,7 +91,7 @@ class VaultScopeAgent {
     }
   }
 
-  private async collectMetrics() {
+  private async collectMetrics(): Promise<MetricsData> {
     const [
       cpu,
       memory,
@@ -112,18 +112,63 @@ class VaultScopeAgent {
       this.config.features.services ? this.collectServices() : Promise.resolve(null)
     ]);
 
+    const cpuData = cpu.status === 'fulfilled' ? cpu.value : null;
+    const memoryData = memory.status === 'fulfilled' ? memory.value : null;
+    const diskData = disk.status === 'fulfilled' ? disk.value : null;
+    const networkData = network.status === 'fulfilled' ? network.value : null;
+    const processCount = processes.status === 'fulfilled' && processes.value ? processes.value.all : undefined;
+    const dockerData = docker.status === 'fulfilled' ? docker.value : null;
+    const kubernetesData = kubernetes.status === 'fulfilled' ? kubernetes.value : null;
+
     return {
-      timestamp: new Date().toISOString(),
-      node: this.config.nodeName,
-      tags: this.config.tags,
-      cpu: cpu.status === 'fulfilled' ? cpu.value : null,
-      memory: memory.status === 'fulfilled' ? memory.value : null,
-      disk: disk.status === 'fulfilled' ? disk.value : null,
-      network: network.status === 'fulfilled' ? network.value : null,
-      processes: processes.status === 'fulfilled' ? processes.value : null,
-      docker: docker.status === 'fulfilled' ? docker.value : null,
-      kubernetes: kubernetes.status === 'fulfilled' ? kubernetes.value : null,
-      services: services.status === 'fulfilled' ? services.value : null
+      timestamp: Date.now(),
+      cpu: cpuData ? {
+        usage: cpuData.usage,
+        cores: cpuData.cores,
+        speed: cpuData.speed,
+        temperature: cpuData.temperature
+      } : {
+        usage: 0,
+        cores: 0,
+        speed: 0
+      },
+      memory: memoryData ? {
+        total: memoryData.total,
+        used: memoryData.used,
+        free: memoryData.free,
+        percentage: memoryData.usage
+      } : {
+        total: 0,
+        used: 0,
+        free: 0,
+        percentage: 0
+      },
+      disk: diskData && diskData.filesystems ? diskData.filesystems : [],
+      network: networkData && networkData.stats && networkData.stats.length > 0 ? {
+        rx_bytes: networkData.stats[0].rx_bytes || 0,
+        tx_bytes: networkData.stats[0].tx_bytes || 0,
+        rx_sec: networkData.stats[0].rx_sec || 0,
+        tx_sec: networkData.stats[0].tx_sec || 0
+      } : {
+        rx_bytes: 0,
+        tx_bytes: 0,
+        rx_sec: 0,
+        tx_sec: 0
+      },
+      processes: processCount,
+      uptime: os.uptime(),
+      docker: dockerData ? {
+        containers: dockerData.containers || 0,
+        running: dockerData.containersRunning || 0,
+        paused: dockerData.containersPaused || 0,
+        stopped: dockerData.containersStopped || 0
+      } : undefined,
+      kubernetes: kubernetesData ? {
+        nodes: kubernetesData.nodes || 0,
+        pods: kubernetesData.pods?.total || 0,
+        deployments: 0,
+        services: 0
+      } : undefined
     };
   }
 
