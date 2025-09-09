@@ -1,5 +1,5 @@
 import { ApiLog, ApiKeyStats } from '../../types/api/logs/apiLog';
-import { apiKeyRepository } from '../../db/repositories/apiKeyRepository';
+import { apiKeyRepository } from '../../db/repositories/apiKeyRepositoryMock';
 
 export async function logApiRequest(
     apiKeyId: string,
@@ -60,14 +60,14 @@ export async function getApiKeyStats(apiKeyId: string): Promise<ApiKeyStats | nu
             totalRequests: stats.totalRequests,
             successfulRequests: Object.entries(stats.statusCodes)
                 .filter(([code]) => parseInt(code) < 400)
-                .reduce((sum, [_, count]) => sum + count, 0),
+                .reduce((sum, [_, count]) => sum + (count as number), 0),
             failedRequests: Object.entries(stats.statusCodes)
                 .filter(([code]) => parseInt(code) >= 400)
-                .reduce((sum, [_, count]) => sum + count, 0),
+                .reduce((sum, [_, count]) => sum + (count as number), 0),
             averageResponseTime: stats.avgResponseTime,
             requestsByEndpoint: stats.endpoints,
             requestsByStatusCode: stats.statusCodes,
-            lastUsed: stats.lastUsed ? new Date(stats.lastUsed) : undefined
+            lastUsed: stats.lastUsed ? new Date(stats.lastUsed) : null
         };
     } catch (error) {
         console.error('Failed to get API key stats:', error);
