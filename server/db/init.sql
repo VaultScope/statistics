@@ -66,17 +66,33 @@ CREATE TABLE IF NOT EXISTS `api_keys` (
 	`uuid` text NOT NULL,
 	`name` text NOT NULL,
 	`key` text NOT NULL,
-	`user_id` integer,
-	`node_id` integer,
 	`permissions` text DEFAULT '{}' NOT NULL,
-	`rate_limit` integer DEFAULT 100 NOT NULL,
 	`is_active` integer DEFAULT true NOT NULL,
-	`expires_at` text,
 	`last_used` text,
+	`usage_count` integer DEFAULT 0 NOT NULL,
+	`rate_limit` integer DEFAULT 1000,
+	`expires_at` text,
+	`created_by` integer,
+	`metadata` text,
 	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
-	`updated_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
-	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`node_id`) REFERENCES `nodes`(`id`) ON UPDATE no action ON DELETE cascade
+	`updated_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+-- API Key Logs table
+CREATE TABLE IF NOT EXISTS `api_key_logs` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`api_key_id` integer NOT NULL,
+	`method` text NOT NULL,
+	`path` text NOT NULL,
+	`status_code` integer,
+	`response_time` integer,
+	`ip_address` text,
+	`user_agent` text,
+	`error_message` text,
+	`request_body` text,
+	`response_size` integer,
+	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	FOREIGN KEY (`api_key_id`) REFERENCES `api_keys`(`id`) ON UPDATE no action ON DELETE cascade
 );
 
 -- Alerts table

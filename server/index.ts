@@ -22,6 +22,7 @@ import rateLimitMiddleware from './functions/rateLimit';
 // Import routes
 import alertsRoutes from './routes/alerts';
 import authRoutes from './routes/auth';
+import statsRoutes from './routes/stats-simple';
 
 // Import services
 import { AlertEngine } from './services/alertEngine';
@@ -93,6 +94,7 @@ app.get('/api', (req, res) => {
 app.use('/api/auth', authRoutes);
 
 // Protected routes
+app.use('/api/stats', authMiddleware, rateLimitMiddleware, statsRoutes);
 app.use('/api/alerts', authMiddleware, rateLimitMiddleware, alertsRoutes);
 
 // Error handling middleware
