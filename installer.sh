@@ -6,7 +6,7 @@
 
 set -e
 
-VSS_VERSION="6.2.6"
+VSS_VERSION="6.2.7"
 INSTALL_DIR_SERVER="/var/www/vs-statistics-server"
 INSTALL_DIR_CLIENT="/var/www/vs-statistics-client"
 INSTALL_DIR_FULL="/var/www/statistics"
@@ -366,12 +366,18 @@ setup_application() {
     log "Installing root dependencies..."
     npm install
     
+    # Rebuild native modules to ensure compatibility
+    log "Rebuilding native modules..."
+    npm rebuild || true
+    
     if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "server" ]]; then
         log "Installing server dependencies..."
         cd server
         npm install || {
             warning "Some server dependencies may be missing, continuing..."
         }
+        # Rebuild server native modules
+        npm rebuild || true
         cd ..
     fi
     
@@ -404,12 +410,16 @@ setup_application() {
         
         log "Generating admin API key..."
         cd "$TARGET_DIR/server"
+        # Ensure native modules are built for current Node version
+        npm rebuild better-sqlite3 2>/dev/null || true
         API_KEY_OUTPUT=$(npm run apikey create "Admin Key" -- --admin --viewStats --createApiKey --deleteApiKey --viewApiKeys --usePowerCommands 2>&1 || true)
         API_KEY=$(echo "$API_KEY_OUTPUT" | grep -oP 'API Key: \K[a-f0-9]{64}' || echo "")
         if [[ -n "$API_KEY" ]]; then
             success "Admin API key generated successfully"
         else
-            warning "Could not generate API key automatically. You can create one later with: vss apikey create"
+            warning "Could not generate API key automatically. You can create one later with:"
+            warning "  cd /var/www/statistics && npm rebuild better-sqlite3"
+            warning "  vss apikey create 'Admin Key' -- --admin"
         fi
         cd "$TARGET_DIR"
     fi
