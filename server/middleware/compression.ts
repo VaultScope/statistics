@@ -10,7 +10,7 @@ export const compressionMiddleware = compression({
   threshold: 1024, // 1KB
   
   // Custom filter function
-  filter: (req: Request, res: Response) => {
+  filter: (req: any, res: any) => {
     // Don't compress responses with this request header
     if (req.headers['x-no-compression']) {
       return false;

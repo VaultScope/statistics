@@ -1,66 +1,80 @@
+# Dependencies
 node_modules/
+*/node_modules/
+
+# Production builds
 dist/
-.env
-package-lock.json
-tsconfig.tsbuildinfo
-.claude/
-CLAUDE.md
-test.md
-.next/
-start.sh
-test-api.sh
-test-endpoints.txt
-installer.sh.backup
-.heapsnapshot
+server/dist/
+client/.next/
+client/out/
 
-# Test files
-synthetic.js
-synthetic.log
-test-results.json
-
-# Database files
+# Databases
 *.db
 *.db-shm
 *.db-wal
-database.json
+*.sqlite
+*.sqlite3
+server/database.db*
 client/database.json
 
 # Environment files
 .env
-.env.*
-!.env.example
+.env.local
+.env.production
+.env.development
+*/.env
+*/.env.*
 
 # Logs
 *.log
-logs/
-*.log.*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
 
-# Temporary files
-*.tmp
-*.temp
-*.cache
-*.swp
-*.swo
-*.bak
-.DS_Store
-
-# IDE files
+# IDE
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
+.DS_Store
 
-# Security sensitive files
-*.key
-*.pem
-*.cert
-*.crt
-*.p12
-*.pfx
+# Testing
+coverage/
+.nyc_output/
 
-# Build artifacts
-build/
-out/
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+.cache/
 
-# API keys and credentials
-apikeys.json
-credentials.json
-secrets.json
+# Backup files
+*.backup
+*.bak
+*~
+*.old
+
+# OS files
+Thumbs.db
+Desktop.ini
+
+# Package manager locks (keep only one)
+# Uncomment the one you don't use:
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+# State files
+.db-initialized
+*.pid
+*.seed
+*.pid.lock
+
+# CLAUDE
+.claude/
+CLAUDE.md 
+package-lock.json

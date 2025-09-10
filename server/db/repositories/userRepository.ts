@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { db, users, roles, sessions, auditLogs } from '../index';
 import type { NewUser, User, Role, NewRole, Session, NewSession, AuditLog, NewAuditLog } from '../schema/users';
-import { UpdateUserData } from '../../../types/network';
+import { UpdateUserData } from '../../types/network';
 
 class DatabaseError extends Error {
   constructor(message: string, public originalError?: unknown) {

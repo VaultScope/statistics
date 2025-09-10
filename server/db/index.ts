@@ -18,7 +18,7 @@ const getDatabasePath = () => {
     return '/var/www/vaultscope-statistics/database.db';
   }
   
-  return path.join(process.cwd(), 'database.db');
+  return path.join(__dirname, '..', 'database.db');
 };
 
 // Create SQLite connection

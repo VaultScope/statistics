@@ -1,8 +1,8 @@
 /** @type {import('next').NextConfig} */
+/** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
   outputFileTracingRoot: require('path').join(__dirname, '..'),
-  swcMinify: true,
   
   typescript: {
     ignoreBuildErrors: true,
@@ -110,15 +110,8 @@ const nextConfig = {
     ];
   },
   
-  // API route configuration
-  async rewrites() {
-    return [
-      {
-        source: '/api/:path*',
-        destination: 'http://localhost:4000/:path*'
-      }
-    ];
-  }
+  // No rewrites needed - client is standalone
+  // All API routes are handled internally by Next.js
 }
 
 module.exports = nextConfig

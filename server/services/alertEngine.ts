@@ -1,6 +1,8 @@
 import alertModel from '../models/alerts';
 import notificationService from './notifications';
-import { getNodes } from '../../client/lib/db-json';
+import { db } from '../db';
+import { nodes } from '../db/schema/nodes';
+import { eq } from 'drizzle-orm';
 import axios from 'axios';
 
 interface MetricValue {
@@ -61,10 +63,10 @@ export class AlertEngine {
 
   private async checkAlerts() {
     try {
-      // Get all nodes
-      const nodes = getNodes();
+      // Get all enabled nodes from database
+      const nodesList = await db.select().from(nodes).where(eq(nodes.isEnabled, true));
       
-      for (const node of nodes) {
+      for (const node of nodesList) {
         try {
           // Fetch metrics from node
           const metrics = await this.fetchNodeMetrics(node);

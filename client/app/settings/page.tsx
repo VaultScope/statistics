@@ -855,7 +855,7 @@ export default function SettingsPage() {
                   type="text"
                   value={nodeForm.url}
                   onChange={(e) => setNodeForm({ ...nodeForm, url: e.target.value })}
-                  placeholder="http://localhost:4000"
+                  placeholder="http://monitoring-server.example.com"
                   className="w-full px-3 py-2 bg-secondary border border-border rounded-lg"
                   required
                 />

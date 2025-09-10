@@ -1,5 +1,5 @@
 import { Database } from 'better-sqlite3';
-import db from '../db';
+import { sqlite } from '../db';
 
 export interface Alert {
   id: number;
@@ -44,10 +44,10 @@ export interface AlertNotification {
 }
 
 class AlertModel {
-  private db: Database;
+  private db: any;
 
   constructor() {
-    this.db = db;
+    this.db = sqlite;
     this.initTables();
   }
 

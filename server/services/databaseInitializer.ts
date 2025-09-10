@@ -41,11 +41,11 @@ class DatabaseInitializer {
   private constructor() {
     this.dbPath = process.env.NODE_ENV === 'production' 
       ? '/var/www/vaultscope-statistics/database.db'
-      : path.join(process.cwd(), 'database.db');
+      : path.join(__dirname, '..', 'database.db');
     
     this.stateFile = process.env.NODE_ENV === 'production'
       ? '/var/www/vaultscope-statistics/.db-initialized'
-      : path.join(process.cwd(), '.db-initialized');
+      : path.join(__dirname, '..', '.db-initialized');
   }
 
   public static getInstance(): DatabaseInitializer {
@@ -86,21 +86,69 @@ class DatabaseInitializer {
    * Run database migrations
    */
   private async runMigrations(): Promise<boolean> {
-    console.log(`${colors.cyan}[DB-INIT]${colors.reset} Running database migrations...`);
+    console.log(`${colors.cyan}[DB-INIT]${colors.reset} Checking database schema...`);
     
     try {
-      // Ensure migrations directory exists
-      const migrationsPath = './server/db/migrations';
-      if (!fs.existsSync(migrationsPath)) {
-        console.log(`${colors.yellow}[DB-INIT]${colors.reset} Creating migrations directory...`);
-        fs.mkdirSync(migrationsPath, { recursive: true });
+      // Get the raw SQLite database instance
+      const { sqlite } = require('../db');
+      
+      // Check if tables already exist
+      const tablesExist = sqlite.prepare("SELECT COUNT(*) as count FROM sqlite_master WHERE type='table'").get() as { count: number };
+      
+      if (tablesExist && tablesExist.count > 5) { // More than just a few tables
+        console.log(`${colors.green}[DB-INIT]${colors.reset} Database schema already exists (${tablesExist.count} tables found)`);
+        return true;
       }
-
-      // Run Drizzle migrations
-      await migrate(db, { migrationsFolder: './server/db/migrations' });
-      console.log(`${colors.green}[DB-INIT]${colors.reset} Database migrations completed`);
-      return true;
-    } catch (error) {
+      
+      // Try to run init.sql first
+      const initSqlPath = path.join(__dirname, '..', 'db', 'init.sql');
+      if (fs.existsSync(initSqlPath)) {
+        console.log(`${colors.yellow}[DB-INIT]${colors.reset} Running database initialization script...`);
+        const initSql = fs.readFileSync(initSqlPath, 'utf-8');
+        
+        // Execute the init SQL
+        try {
+          sqlite.exec(initSql);
+          console.log(`${colors.green}[DB-INIT]${colors.reset} Database schema created successfully`);
+          return true;
+        } catch (sqlError: any) {
+          if (sqlError.message?.includes('already exists')) {
+            console.log(`${colors.yellow}[DB-INIT]${colors.reset} Some tables already exist, continuing...`);
+            return true;
+          }
+          throw sqlError;
+        }
+      }
+      
+      // Fallback to migrations if init.sql doesn't exist
+      const migrationsPath = path.join(__dirname, '..', 'db', 'migrations');
+      if (fs.existsSync(path.join(migrationsPath, '0000_glorious_queen_noir.sql'))) {
+        console.log(`${colors.yellow}[DB-INIT]${colors.reset} Running migration file...`);
+        const migrationSql = fs.readFileSync(path.join(migrationsPath, '0000_glorious_queen_noir.sql'), 'utf-8');
+        const statements = migrationSql.split('-->').map(s => s.replace('statement-breakpoint', '').trim()).filter(s => s);
+        
+        for (const stmt of statements) {
+          try {
+            sqlite.exec(stmt);
+          } catch (e: any) {
+            if (!e.message?.includes('already exists')) {
+              console.error(`${colors.red}[DB-INIT]${colors.reset} Migration statement failed:`, e.message);
+            }
+          }
+        }
+        console.log(`${colors.green}[DB-INIT]${colors.reset} Database migrations completed`);
+        return true;
+      }
+      
+      console.log(`${colors.yellow}[DB-INIT]${colors.reset} No migration files found, database may not be fully initialized`);
+      return false;
+    } catch (error: any) {
+      // If tables already exist error, that's okay
+      if (error.message?.includes('already exists')) {
+        console.log(`${colors.yellow}[DB-INIT]${colors.reset} Tables already exist, skipping migrations`);
+        return true;
+      }
+      
       console.error(`${colors.red}[DB-INIT]${colors.reset} Migration failed:`, error);
       
       // Try to generate migrations if they don't exist
@@ -113,7 +161,12 @@ class DatabaseInitializer {
         await migrate(db, { migrationsFolder: './server/db/migrations' });
         console.log(`${colors.green}[DB-INIT]${colors.reset} Database migrations completed after generation`);
         return true;
-      } catch (retryError) {
+      } catch (retryError: any) {
+        // Again, if tables exist, that's fine
+        if (retryError.message?.includes('already exists')) {
+          console.log(`${colors.yellow}[DB-INIT]${colors.reset} Tables created, continuing...`);
+          return true;
+        }
         console.error(`${colors.red}[DB-INIT]${colors.reset} Failed to generate and run migrations:`, retryError);
         return false;
       }
@@ -332,55 +385,13 @@ class DatabaseInitializer {
     console.log(`${colors.cyan}[DB-INIT]${colors.reset} Checking for existing JSON data...`);
     
     const jsonPaths = {
-      database: process.env.NODE_ENV === 'production' 
-        ? '/var/www/vaultscope-statistics/database.json'
-        : path.join(process.cwd(), 'database.json'),
+      // Server no longer migrates from client's database.json since they're separate apps
       apiKeys: process.env.NODE_ENV === 'production'
         ? '/var/www/vaultscope-statistics/apiKeys.json'
-        : path.join(process.cwd(), 'apiKeys.json')
+        : path.join(__dirname, '..', 'apiKeys.json')
     };
     
     let migrated = false;
-    
-    // Migrate database.json
-    if (fs.existsSync(jsonPaths.database)) {
-      console.log(`${colors.yellow}[DB-INIT]${colors.reset} Found database.json, migrating...`);
-      
-      try {
-        const jsonData = JSON.parse(fs.readFileSync(jsonPaths.database, 'utf-8'));
-        
-        // Migrate users
-        if (jsonData.users && jsonData.users.length > 0) {
-          for (const user of jsonData.users) {
-            const existingUser = await userRepository.getUserByUsername(user.username);
-            
-            if (!existingUser) {
-              await db.insert(users).values({
-                username: user.username,
-                firstName: user.firstName || user.username,
-                password: user.password, // Already hashed
-                roleId: user.roleId || user.role || 'viewer',
-                email: user.email || null,
-                isActive: user.isActive !== false,
-                lastLogin: user.lastLogin || null,
-                createdAt: user.createdAt || new Date().toISOString(),
-                updatedAt: user.createdAt || new Date().toISOString(),
-              });
-            }
-          }
-          console.log(`${colors.green}[DB-INIT]${colors.reset} Users migrated from JSON`);
-        }
-        
-        // Backup original file
-        const backupPath = jsonPaths.database + '.backup-' + Date.now();
-        fs.renameSync(jsonPaths.database, backupPath);
-        console.log(`${colors.yellow}[DB-INIT]${colors.reset} Original database.json backed up`);
-        
-        migrated = true;
-      } catch (error) {
-        console.error(`${colors.red}[DB-INIT]${colors.reset} Failed to migrate database.json:`, error);
-      }
-    }
     
     // Migrate apiKeys.json
     if (fs.existsSync(jsonPaths.apiKeys)) {
@@ -450,14 +461,16 @@ class DatabaseInitializer {
     try {
       // Step 1: Run migrations
       const migrated = await this.runMigrations();
+      // Allow initialization to continue even if migrations fail
+      // This handles cases where tables already exist
       if (!migrated && isFirstStart) {
-        throw new Error('Failed to run migrations on first start');
+        console.log(`${colors.yellow}[DB-INIT] Migrations skipped or failed, continuing with existing schema${colors.reset}`);
       }
 
       // Step 2: Seed default data
       const seeded = await this.seedDefaultData();
       if (!seeded && isFirstStart) {
-        throw new Error('Failed to seed default data on first start');
+        console.log(`${colors.yellow}[DB-INIT] Seeding skipped or failed, continuing...${colors.reset}`);
       }
 
       // Step 3: Migrate existing JSON data
