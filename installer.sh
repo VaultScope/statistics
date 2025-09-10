@@ -564,7 +564,25 @@ EOF
 create_vss_cli() {
     log "Creating VSS CLI tool..."
     
-    cat > /usr/local/bin/vss << 'EOF'
+    # Check if cli.js exists in the installation directory
+    local CLI_PATH=""
+    if [[ -f "$INSTALL_DIR_FULL/cli.js" ]]; then
+        CLI_PATH="$INSTALL_DIR_FULL/cli.js"
+    elif [[ -f "$INSTALL_DIR_SERVER/../cli.js" ]]; then
+        CLI_PATH="$INSTALL_DIR_SERVER/../cli.js"
+    fi
+    
+    if [[ -n "$CLI_PATH" ]]; then
+        # Make cli.js executable
+        chmod +x "$CLI_PATH"
+        
+        # Create symlink to /usr/local/bin/vss
+        ln -sf "$CLI_PATH" /usr/local/bin/vss
+        
+        log "VSS CLI tool linked from $CLI_PATH to /usr/local/bin/vss"
+    else
+        # Fallback to the old bash script if cli.js doesn't exist
+        cat > /usr/local/bin/vss << 'EOF'
 #!/bin/bash
 
 VSS_CONFIG="/etc/vss/config.json"
@@ -770,9 +788,10 @@ case "$1" in
         ;;
 esac
 EOF
-    
-    chmod +x /usr/local/bin/vss
-    log "VSS CLI tool installed at /usr/local/bin/vss"
+        
+        chmod +x /usr/local/bin/vss
+        log "VSS CLI tool installed at /usr/local/bin/vss (bash fallback)"
+    fi
 }
 
 save_configuration() {
