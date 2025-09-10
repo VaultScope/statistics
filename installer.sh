@@ -1,12 +1,12 @@
 #!/bin/bash
 
 #############################################
-# VaultScope Statistics Installer v6.2.0
+# VaultScope Statistics Installer v6.2.2
 #############################################
 
 set -e
 
-VSS_VERSION="6.2.1"
+VSS_VERSION="6.2.2"
 INSTALL_DIR_SERVER="/var/www/vs-statistics-server"
 INSTALL_DIR_CLIENT="/var/www/vs-statistics-client"
 INSTALL_DIR_FULL="/var/www/statistics"
@@ -33,6 +33,7 @@ USE_SSL=false
 NODE_VERSION="20"
 API_KEY=""
 ADMIN_KEY=""
+SSL_EMAIL=""
 
 # Always run in interactive mode - use /dev/tty for input when piped
 INTERACTIVE=true
@@ -496,9 +497,6 @@ setup_nginx() {
     local server_ip=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -n1)
     
     if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "server" ]]; then
-        echo ""
-        read -p "Enter domain for API/Server (e.g., api.example.com): " SERVER_DOMAIN </dev/tty
-        
         cat > /etc/nginx/sites-available/vss-server << EOF
 server {
     listen 80;
@@ -519,13 +517,9 @@ server {
 EOF
         
         ln -sf /etc/nginx/sites-available/vss-server /etc/nginx/sites-enabled/
-        info "Configure DNS A record for $SERVER_DOMAIN to point to: $server_ip"
     fi
     
     if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "client" ]]; then
-        echo ""
-        read -p "Enter domain for Client (e.g., stats.example.com): " CLIENT_DOMAIN </dev/tty
-        
         cat > /etc/nginx/sites-available/vss-client << EOF
 server {
     listen 80;
@@ -546,7 +540,6 @@ server {
 EOF
         
         ln -sf /etc/nginx/sites-available/vss-client /etc/nginx/sites-enabled/
-        info "Configure DNS A record for $CLIENT_DOMAIN to point to: $server_ip"
     fi
     
     systemctl reload nginx
@@ -555,11 +548,11 @@ EOF
         log "Setting up SSL certificates..."
         
         if [[ -n "$SERVER_DOMAIN" ]]; then
-            certbot --nginx -d "$SERVER_DOMAIN" --non-interactive --agree-tos --email admin@$SERVER_DOMAIN
+            certbot --nginx -d "$SERVER_DOMAIN" --non-interactive --agree-tos --email "$SSL_EMAIL"
         fi
         
         if [[ -n "$CLIENT_DOMAIN" ]]; then
-            certbot --nginx -d "$CLIENT_DOMAIN" --non-interactive --agree-tos --email admin@$CLIENT_DOMAIN
+            certbot --nginx -d "$CLIENT_DOMAIN" --non-interactive --agree-tos --email "$SSL_EMAIL"
         fi
     fi
 }
@@ -912,8 +905,38 @@ main() {
     
     if prompt_yes_no "Would you like to use Nginx as a reverse proxy?"; then
         USE_NGINX=true
+        
+        # Get server IP for DNS configuration
+        local server_ip=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -n1)
+        
+        echo ""
+        echo "${CYAN}=== Domain Configuration ===${NC}"
+        echo "Your server IP address is: ${GREEN}$server_ip${NC}"
+        echo "Please configure your DNS A records to point to this IP before continuing."
+        echo ""
+        
+        # Collect domain names based on installation type
+        if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "server" ]]; then
+            read -p "Enter domain for API/Server (e.g., api.example.com): " SERVER_DOMAIN </dev/tty
+            echo "Add DNS A record: ${GREEN}$SERVER_DOMAIN -> $server_ip${NC}"
+        fi
+        
+        if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "client" ]]; then
+            read -p "Enter domain for Client (e.g., stats.example.com): " CLIENT_DOMAIN </dev/tty
+            echo "Add DNS A record: ${GREEN}$CLIENT_DOMAIN -> $server_ip${NC}"
+        fi
+        
+        echo ""
         if prompt_yes_no "Would you like to setup SSL certificates?"; then
             USE_SSL=true
+            read -p "Enter email address for SSL certificates: " SSL_EMAIL </dev/tty
+        fi
+        
+        if prompt_yes_no "Have you configured the DNS records? Continue?"; then
+            log "DNS records confirmed by user"
+        else
+            error "Please configure DNS records and run the installer again."
+            exit 1
         fi
     fi
     
