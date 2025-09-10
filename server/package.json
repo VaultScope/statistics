@@ -43,7 +43,21 @@
     "morgan": "^1.10.1",
     "ps-list": "^8.1.1",
     "systeminformation": "^5.21.20",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "nodemailer": "^6.9.7",
+    "@slack/webhook": "^7.0.2",
+    "passport": "^0.7.0",
+    "passport-local": "^1.0.0",
+    "passport-ldapauth": "^3.0.1",
+    "passport-google-oauth20": "^2.0.0",
+    "passport-github2": "^0.1.12",
+    "redis": "^4.6.10",
+    "prom-client": "^15.0.0",
+    "@influxdata/influxdb-client": "^1.33.2",
+    "@influxdata/influxdb-client-apis": "^1.33.2",
+    "pdfkit": "^0.14.0",
+    "json2csv": "^6.0.0",
+    "speedtest-net": "^2.2.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

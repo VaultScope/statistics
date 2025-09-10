@@ -6,7 +6,7 @@
 
 set -e
 
-VSS_VERSION="6.2.3"
+VSS_VERSION="6.2.4"
 INSTALL_DIR_SERVER="/var/www/vs-statistics-server"
 INSTALL_DIR_CLIENT="/var/www/vs-statistics-client"
 INSTALL_DIR_FULL="/var/www/statistics"
@@ -363,8 +363,26 @@ setup_application() {
     clone_repository "$TARGET_DIR"
     cd "$TARGET_DIR"
     
-    log "Installing Node.js dependencies..."
+    log "Installing root dependencies..."
     npm install
+    
+    if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "server" ]]; then
+        log "Installing server dependencies..."
+        cd server
+        npm install || {
+            warning "Some server dependencies may be missing, continuing..."
+        }
+        cd ..
+    fi
+    
+    if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "client" ]]; then
+        log "Installing client dependencies..."
+        cd client
+        npm install || {
+            warning "Some client dependencies may be missing, continuing..."
+        }
+        cd ..
+    fi
     
     if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "server" ]]; then
         log "Building server..."
@@ -377,7 +395,7 @@ setup_application() {
         # Just ensure the database file has correct permissions
         cd server
         # Run the server briefly to create database
-        timeout 5s npx ts-node index.ts || true
+        timeout 5s npx ts-node index.ts 2>/dev/null || true
         if [[ -f "database.db" ]]; then
             chown www-data:www-data database.db* 2>/dev/null || true
             success "Server database initialized"
