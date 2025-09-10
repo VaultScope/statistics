@@ -1,12 +1,12 @@
 #!/bin/bash
 
 #############################################
-# VaultScope Statistics Installer v6.2.2
+# VaultScope Statistics Installer v6.2.8
 #############################################
 
 set -e
 
-VSS_VERSION="6.2.7"
+VSS_VERSION="6.2.8"
 INSTALL_DIR_SERVER="/var/www/vs-statistics-server"
 INSTALL_DIR_CLIENT="/var/www/vs-statistics-client"
 INSTALL_DIR_FULL="/var/www/statistics"
