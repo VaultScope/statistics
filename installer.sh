@@ -6,7 +6,7 @@
 
 set -e
 
-VSS_VERSION="6.2.0"
+VSS_VERSION="6.2.1"
 INSTALL_DIR_SERVER="/var/www/vs-statistics-server"
 INSTALL_DIR_CLIENT="/var/www/vs-statistics-client"
 INSTALL_DIR_FULL="/var/www/statistics"
@@ -34,15 +34,8 @@ NODE_VERSION="20"
 API_KEY=""
 ADMIN_KEY=""
 
-# Check if running in non-interactive mode (piped)
-if [ ! -t 0 ]; then
-    INTERACTIVE=false
-    # Set defaults for non-interactive mode
-    INSTALL_TYPE="full"
-    BRANCH="main"
-else
-    INTERACTIVE=true
-fi
+# Always run in interactive mode - use /dev/tty for input when piped
+INTERACTIVE=true
 
 mkdir -p "$LOG_DIR"
 exec 1> >(tee -a "$LOG_FILE")
@@ -70,19 +63,9 @@ success() {
 
 prompt_yes_no() {
     local prompt="$1"
-    local default="${2:-n}"
-    
-    if [[ "$INTERACTIVE" == "false" ]]; then
-        if [[ "$default" == "y" ]]; then
-            return 0
-        else
-            return 1
-        fi
-    fi
-    
     local response
     while true; do
-        read -p "$prompt [y/n]: " response
+        read -p "$prompt [y/n]: " response </dev/tty
         case $response in
             [Yy]* ) return 0;;
             [Nn]* ) return 1;;
@@ -140,7 +123,7 @@ check_existing_installation() {
         echo "3) Cancel"
         
         while true; do
-            read -p "Select option [1-3]: " choice
+            read -p "Select option [1-3]: " choice </dev/tty
             case $choice in
                 1)
                     perform_update
@@ -285,11 +268,6 @@ install_dependencies() {
 }
 
 select_installation_type() {
-    if [[ "$INTERACTIVE" == "false" ]]; then
-        log "Non-interactive mode: Using default installation type (full)"
-        return
-    fi
-    
     echo ""
     echo "Select installation type:"
     echo "1) Full installation (Server + Client)"
@@ -297,7 +275,7 @@ select_installation_type() {
     echo "3) Client only"
     
     while true; do
-        read -p "Select option [1-3]: " choice
+        read -p "Select option [1-3]: " choice </dev/tty
         case $choice in
             1)
                 INSTALL_TYPE="full"
@@ -321,18 +299,13 @@ select_installation_type() {
 }
 
 select_branch() {
-    if [[ "$INTERACTIVE" == "false" ]]; then
-        log "Non-interactive mode: Using default branch (main)"
-        return
-    fi
-    
     echo ""
     echo "Select branch to install from:"
     echo "1) main (recommended - stable)"
     echo "2) dev (experimental - latest features)"
     
     while true; do
-        read -p "Select option [1-2]: " choice
+        read -p "Select option [1-2]: " choice </dev/tty
         case $choice in
             1)
                 BRANCH="main"
@@ -524,7 +497,7 @@ setup_nginx() {
     
     if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "server" ]]; then
         echo ""
-        read -p "Enter domain for API/Server (e.g., api.example.com): " SERVER_DOMAIN
+        read -p "Enter domain for API/Server (e.g., api.example.com): " SERVER_DOMAIN </dev/tty
         
         cat > /etc/nginx/sites-available/vss-server << EOF
 server {
@@ -551,7 +524,7 @@ EOF
     
     if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "client" ]]; then
         echo ""
-        read -p "Enter domain for Client (e.g., stats.example.com): " CLIENT_DOMAIN
+        read -p "Enter domain for Client (e.g., stats.example.com): " CLIENT_DOMAIN </dev/tty
         
         cat > /etc/nginx/sites-available/vss-client << EOF
 server {
@@ -802,7 +775,7 @@ case "$1" in
         
     uninstall)
         echo -e "${YELLOW}Warning: This will completely remove VaultScope Statistics${NC}"
-        read -p "Are you sure? [y/N]: " confirm
+        read -p "Are you sure? [y/N]: " confirm </dev/tty
         if [[ "$confirm" == "y" ]] || [[ "$confirm" == "Y" ]]; then
             bash /var/log/vss-installer/uninstall.sh
         fi
@@ -927,13 +900,8 @@ main() {
     echo "========================================="
     echo ""
     
-    if [[ "$INTERACTIVE" == "false" ]]; then
-        echo "Running in non-interactive mode with defaults:"
-        echo "- Installation type: full"
-        echo "- Branch: main"
-        echo "- No Nginx/SSL configuration"
-        echo ""
-    fi
+    # Ensure we can read from terminal even when piped
+    exec < /dev/tty
     
     check_root
     detect_os
