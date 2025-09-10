@@ -6,7 +6,7 @@
 
 set -e
 
-VSS_VERSION="6.2.5"
+VSS_VERSION="6.2.6"
 INSTALL_DIR_SERVER="/var/www/vs-statistics-server"
 INSTALL_DIR_CLIENT="/var/www/vs-statistics-client"
 INSTALL_DIR_FULL="/var/www/statistics"
@@ -403,9 +403,15 @@ setup_application() {
         cd ..
         
         log "Generating admin API key..."
-        ADMIN_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
-        API_KEY_OUTPUT=$(npm run apikey create "Admin Key" -- --admin --viewStats --createApiKey --deleteApiKey --viewApiKeys --usePowerCommands 2>&1)
+        cd "$TARGET_DIR/server"
+        API_KEY_OUTPUT=$(npm run apikey create "Admin Key" -- --admin --viewStats --createApiKey --deleteApiKey --viewApiKeys --usePowerCommands 2>&1 || true)
         API_KEY=$(echo "$API_KEY_OUTPUT" | grep -oP 'API Key: \K[a-f0-9]{64}' || echo "")
+        if [[ -n "$API_KEY" ]]; then
+            success "Admin API key generated successfully"
+        else
+            warning "Could not generate API key automatically. You can create one later with: vss apikey create"
+        fi
+        cd "$TARGET_DIR"
     fi
     
     if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "client" ]]; then
@@ -902,14 +908,22 @@ display_installation_info() {
     fi
     
     echo ""
-    echo -e "${CYAN}Management Commands:${NC}"
-    echo "Check status:    vss status"
-    echo "View logs:       vss logs [server|client]"
-    echo "Restart:         vss restart"
-    echo "Update:          vss update"
-    echo "Manage API keys: vss apikey [list|create|delete]"
+    echo -e "${CYAN}Useful Commands:${NC}"
+    echo "Check services:  systemctl status vss-server vss-client"
+    echo "View logs:       journalctl -u vss-server -f"
+    echo "                 journalctl -u vss-client -f"
+    echo "Restart server:  systemctl restart vss-server"
+    echo "Restart client:  systemctl restart vss-client"
+    echo "CLI tool:        vss --help"
+    echo "API keys:        vss apikey list"
+    echo "Health check:    vss health"
     echo ""
-    echo -e "${GREEN}Installation log saved to: $LOG_FILE${NC}"
+    echo -e "${CYAN}Test Installation:${NC}"
+    echo "Server health:   curl http://localhost:4000/health"
+    echo "Client status:   curl http://localhost:4001"
+    echo ""
+    echo -e "${GREEN}Installation log: $LOG_FILE${NC}"
+    echo -e "${GREEN}Configuration: $CONFIG_FILE${NC}"
 }
 
 main() {

@@ -5,19 +5,20 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen)](https://nodejs.org)
 [![Next.js](https://img.shields.io/badge/Next.js-15-black)](https://nextjs.org)
+[![Installer Version](https://img.shields.io/badge/installer-v6.2.6-blue)](installer.sh)
 
 ## Quick Start
 
 ### One-Line Installation (Recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vaultscope/statistics/main/installer.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/vaultscope/statistics/dev/installer.sh | sudo bash
 ```
 
 Or clone and install:
 
 ```bash
-git clone https://github.com/vaultscope/statistics.git && cd statistics && sudo bash installer.sh
+git clone -b dev https://github.com/vaultscope/statistics.git && cd statistics && sudo bash installer.sh
 ```
 
 The installer will:
@@ -206,6 +207,19 @@ curl -H "Authorization: Bearer YOUR_API_KEY" http://localhost:4000/api/stats
 curl "http://localhost:4000/api/stats?apiKey=YOUR_API_KEY"
 ```
 
+### Managing API Keys with CLI
+
+```bash
+# List all API keys
+vss apikey list
+
+# Create a new API key
+vss apikey create "My Key" --viewStats
+
+# Delete an API key
+vss apikey delete <key-id>
+```
+
 ## Available Endpoints
 
 ### Public Endpoints
@@ -318,9 +332,21 @@ statistics/
 ```bash
 npm run install:all    # Install all dependencies
 npm run dev            # Run both in dev mode
-npm run build:all      # Build both applications
-npm run start:all      # Start both in production
+npm run server         # Run server in dev mode
+npm run client         # Run client in dev mode
+npm run build          # Build both applications
+npm run start          # Start both in production
 npm run clean          # Clean all build artifacts
+```
+
+**CLI Tool (vss):**
+```bash
+vss --help             # Show all available commands
+vss setup              # Run setup wizard
+vss health             # Check system health
+vss apikey create      # Create new API key
+vss logs server        # View server logs
+vss restart            # Restart all services
 ```
 
 **Server Scripts:**
@@ -354,6 +380,28 @@ npm run lint           # Run ESLint
 - **Audit Logging**: Complete activity trail
 - **Input Validation**: Comprehensive request validation
 - **HTTPS Support**: SSL/TLS encryption ready
+
+## Verifying Installation
+
+After installation, verify everything is working:
+
+```bash
+# Check service status
+systemctl status vss-server vss-client
+
+# Test server health
+curl http://localhost:4000/health
+
+# Test client
+curl http://localhost:4001
+
+# Check logs
+journalctl -u vss-server --since "10 minutes ago"
+journalctl -u vss-client --since "10 minutes ago"
+
+# Use CLI health check
+vss health
+```
 
 ## Troubleshooting
 
