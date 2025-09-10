@@ -6,7 +6,7 @@
 
 set -e
 
-VSS_VERSION="6.2.4"
+VSS_VERSION="6.2.5"
 INSTALL_DIR_SERVER="/var/www/vs-statistics-server"
 INSTALL_DIR_CLIENT="/var/www/vs-statistics-client"
 INSTALL_DIR_FULL="/var/www/statistics"
