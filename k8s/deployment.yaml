@@ -1,0 +1,206 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vaultscope-statistics
+  namespace: monitoring
+  labels:
+    app: vaultscope
+    component: statistics
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: vaultscope
+      component: statistics
+  template:
+    metadata:
+      labels:
+        app: vaultscope
+        component: statistics
+    spec:
+      containers:
+      - name: vaultscope
+        image: vaultscope/statistics:latest
+        imagePullPolicy: Always
+        ports:
+        - name: api
+          containerPort: 4000
+          protocol: TCP
+        - name: web
+          containerPort: 4001
+          protocol: TCP
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: DATABASE_URL
+          value: "/data/database.db"
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: vaultscope-secrets
+              key: jwt-secret
+        - name: INFLUX_URL
+          value: "http://influxdb:8086"
+        - name: INFLUX_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: vaultscope-secrets
+              key: influx-token
+        - name: REDIS_URL
+          value: "redis://redis:6379"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: api
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: api
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: config
+          mountPath: /app/config
+          readOnly: true
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: vaultscope-pvc
+      - name: config
+        configMap:
+          name: vaultscope-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vaultscope-api
+  namespace: monitoring
+  labels:
+    app: vaultscope
+    component: api
+spec:
+  type: ClusterIP
+  ports:
+  - port: 4000
+    targetPort: api
+    protocol: TCP
+    name: api
+  selector:
+    app: vaultscope
+    component: statistics
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vaultscope-web
+  namespace: monitoring
+  labels:
+    app: vaultscope
+    component: web
+spec:
+  type: ClusterIP
+  ports:
+  - port: 4001
+    targetPort: web
+    protocol: TCP
+    name: web
+  selector:
+    app: vaultscope
+    component: statistics
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vaultscope-ingress
+  namespace: monitoring
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - api.vaultscope.example.com
+    - vaultscope.example.com
+    secretName: vaultscope-tls
+  rules:
+  - host: api.vaultscope.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: vaultscope-api
+            port:
+              number: 4000
+  - host: vaultscope.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: vaultscope-web
+            port:
+              number: 4001
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vaultscope-pvc
+  namespace: monitoring
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: fast-ssd
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vaultscope-config
+  namespace: monitoring
+data:
+  config.json: |
+    {
+      "monitoring": {
+        "interval": 30,
+        "retention": "90d",
+        "aggregation": "5m"
+      },
+      "alerts": {
+        "cooldown": 5,
+        "retries": 3
+      },
+      "features": {
+        "autoDiscovery": true,
+        "metrics": true,
+        "logs": true,
+        "traces": false
+      }
+    }
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vaultscope-secrets
+  namespace: monitoring
+type: Opaque
+stringData:
+  jwt-secret: "change-me-to-a-secure-secret"
+  influx-token: "your-influxdb-token"
+  admin-password: "change-me"

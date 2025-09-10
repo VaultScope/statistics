@@ -1,0 +1,96 @@
+version: '3.8'
+
+services:
+  vaultscope:
+    build: .
+    container_name: vaultscope-statistics
+    restart: unless-stopped
+    ports:
+      - "4000:4000"  # API Server
+      - "4001:4001"  # Web Client
+    volumes:
+      - vaultscope-data:/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # For Docker monitoring
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=/data/database.db
+      - PORT=4000
+      - CLIENT_PORT=4001
+      - JWT_SECRET=${JWT_SECRET:-changeme}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+    networks:
+      - vaultscope-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.vaultscope-api.rule=Host(`api.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.vaultscope-api.service=vaultscope-api"
+      - "traefik.http.services.vaultscope-api.loadbalancer.server.port=4000"
+      - "traefik.http.routers.vaultscope-web.rule=Host(`${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.vaultscope-web.service=vaultscope-web"
+      - "traefik.http.services.vaultscope-web.loadbalancer.server.port=4001"
+
+  # Optional: InfluxDB for time-series data
+  influxdb:
+    image: influxdb:2.7-alpine
+    container_name: vaultscope-influxdb
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+      - influxdb-config:/etc/influxdb2
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=${INFLUX_USERNAME:-admin}
+      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUX_PASSWORD:-adminpassword}
+      - DOCKER_INFLUXDB_INIT_ORG=vaultscope
+      - DOCKER_INFLUXDB_INIT_BUCKET=metrics
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUX_TOKEN:-mytoken}
+    networks:
+      - vaultscope-network
+
+  # Optional: Redis for caching and session storage
+  redis:
+    image: redis:7-alpine
+    container_name: vaultscope-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - vaultscope-network
+
+  # Optional: Traefik reverse proxy
+  traefik:
+    image: traefik:v3.0
+    container_name: vaultscope-traefik
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"  # Traefik dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-certs:/letsencrypt
+      - ./traefik.yml:/etc/traefik/traefik.yml:ro
+    networks:
+      - vaultscope-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.traefik.service=api@internal"
+      - "traefik.http.routers.traefik.middlewares=auth"
+      - "traefik.http.middlewares.auth.basicauth.users=${TRAEFIK_AUTH:-admin:$$2y$$10$$..."
+
+networks:
+  vaultscope-network:
+    driver: bridge
+
+volumes:
+  vaultscope-data:
+  influxdb-data:
+  influxdb-config:
+  redis-data:
+  traefik-certs:

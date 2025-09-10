@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1757476068415,
+      "tag": "0000_glorious_queen_noir",
+      "breakpoints": true
+    }
+  ]
+}

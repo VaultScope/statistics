@@ -1,0 +1,184 @@
+# Default values for VaultScope Statistics
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+image:
+  repository: vaultscope/statistics
+  pullPolicy: IfNotPresent
+  tag: "4.0.5"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  fsGroup: 1000
+  runAsNonRoot: true
+  runAsUser: 1000
+
+securityContext:
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1000
+
+service:
+  type: ClusterIP
+  port: 4000
+  targetPort: 4000
+  annotations: {}
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+  hosts:
+    - host: vaultscope.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: vaultscope-tls
+      hosts:
+        - vaultscope.example.com
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchExpressions:
+          - key: app.kubernetes.io/name
+            operator: In
+            values:
+            - vaultscope
+        topologyKey: kubernetes.io/hostname
+
+persistence:
+  enabled: true
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 10Gi
+  mountPath: /var/www/vaultscope-statistics
+
+env:
+  NODE_ENV: "production"
+  PORT: "4000"
+  DATABASE_URL: "/var/www/vaultscope-statistics/database.db"
+  JWT_SECRET: "changeme"
+  SESSION_SECRET: "changeme"
+  ADMIN_EMAIL: "admin@example.com"
+
+# InfluxDB Configuration
+influxdb:
+  enabled: true
+  url: "http://influxdb:8086"
+  org: "vaultscope"
+  bucket: "metrics"
+  token: ""
+  retentionDays: 90
+
+# Redis Configuration
+redis:
+  enabled: true
+  host: "redis"
+  port: 6379
+  password: ""
+
+# PostgreSQL Configuration (alternative to SQLite)
+postgresql:
+  enabled: false
+  host: "postgresql"
+  port: 5432
+  database: "vaultscope"
+  username: "vaultscope"
+  password: ""
+
+# LDAP Configuration
+ldap:
+  enabled: false
+  url: "ldap://ldap.example.com:389"
+  bindDN: "cn=admin,dc=example,dc=com"
+  bindPassword: ""
+  searchBase: "dc=example,dc=com"
+  searchFilter: "(uid={{username}})"
+
+# OAuth2/SSO Configuration
+oauth:
+  enabled: false
+  providers:
+    google:
+      enabled: false
+      clientId: ""
+      clientSecret: ""
+    github:
+      enabled: false
+      clientId: ""
+      clientSecret: ""
+    azure:
+      enabled: false
+      clientId: ""
+      clientSecret: ""
+      tenantId: ""
+
+# Monitoring
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    path: /metrics
+
+# Backup
+backup:
+  enabled: false
+  schedule: "0 2 * * *"
+  retention: 30
+  storageClass: ""
+  size: 10Gi
+
+# High Availability
+ha:
+  enabled: false
+  replicaCount: 3
+  sessionAffinity: ClientIP
+
+# Rate Limiting
+rateLimiting:
+  enabled: true
+  requestsPerMinute: 100
+  requestsPerHour: 1000

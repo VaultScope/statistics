@@ -1,34 +1,8 @@
 import { Request, Response, NextFunction } from "express";
-import { promises as fs } from "fs";
-import path from "path";
 import Key from "../types/api/keys/key";
 import Permissions from "../types/api/keys/permissions";
 import { logApiRequest } from "./logs/apiLogger";
-
-// Look for apiKeys.json in the root project directory
-const apiKeysPath = path.resolve(process.cwd(), "apiKeys.json");
-
-// Cache and reload every 15s
-let cachedKeys: Key[] = [];
-let lastLoad = 0;
-const CACHE_TTL = 15 * 1000;
-
-async function loadKeys(): Promise<Key[]> {
-    const now = Date.now();
-    if (cachedKeys.length > 0 && now - lastLoad < CACHE_TTL) {
-        return cachedKeys;
-    }
-
-    try {
-        const data = await fs.readFile(apiKeysPath, "utf-8");
-        cachedKeys = JSON.parse(data) as Key[];
-        lastLoad = now;
-        return cachedKeys;
-    } catch {
-        cachedKeys = [];
-        return [];
-    }
-}
+import { apiKeyRepository } from "../db/repositories/apiKeyRepository";
 
 interface AuthRequest extends Request {
     apiKey?: Key;
@@ -38,13 +12,15 @@ interface AuthRequest extends Request {
 function authenticate(requiredPermissions?: (keyof Permissions)[]) {
     return async (req: AuthRequest, res: Response, next: NextFunction) => {
         req.requestStartTime = Date.now();
+        
+        // Authentication is properly enabled
 
         const apiKey: string | undefined =
             (req.headers["x-api-key"] as string) ||
             req.headers["authorization"]?.replace("Bearer ", "") ||
             (req.query.apiKey as string);
 
-        if (!apiKey || apiKey.trim() === "") {
+        if (!apiKey || apiKey?.trim() === "") {
             const statusCode = 401;
             void logApiRequest(
                 "unknown",
@@ -53,8 +29,8 @@ function authenticate(requiredPermissions?: (keyof Permissions)[]) {
                 req.method,
                 statusCode,
                 (req.headers["x-forwarded-for"] as string) || req.ip || "unknown",
-                req.headers["user-agent"],
-                Date.now() - req.requestStartTime
+                req.headers["user-agent"] as string | undefined,
+                req.requestStartTime ? Date.now() - req.requestStartTime! : 0
             );
 
             return res.status(statusCode).json({
@@ -63,10 +39,10 @@ function authenticate(requiredPermissions?: (keyof Permissions)[]) {
             });
         }
 
-        const keys = await loadKeys();
-        const foundKey = keys.find((k) => k.key === apiKey);
+        // Validate API key using database
+        const validatedKey = await apiKeyRepository.validateApiKey(apiKey!);
 
-        if (!foundKey) {
+        if (!validatedKey) {
             const statusCode = 401;
             void logApiRequest(
                 "invalid",
@@ -75,8 +51,8 @@ function authenticate(requiredPermissions?: (keyof Permissions)[]) {
                 req.method,
                 statusCode,
                 (req.headers["x-forwarded-for"] as string) || req.ip || "unknown",
-                req.headers["user-agent"],
-                Date.now() - req.requestStartTime
+                req.headers["user-agent"] as string | undefined,
+                req.requestStartTime ? Date.now() - req.requestStartTime! : 0
             );
 
             return res.status(statusCode).json({
@@ -85,8 +61,17 @@ function authenticate(requiredPermissions?: (keyof Permissions)[]) {
             });
         }
 
-        if (requiredPermissions && requiredPermissions.length > 0) {
-            const missingPermissions = requiredPermissions.filter(
+        // Convert database key to expected format
+        const foundKey: Key = {
+            uuid: validatedKey!.uuid!,
+            name: validatedKey!.name,
+            key: validatedKey!.key,
+            permissions: validatedKey!.permissions,
+            createdAt: new Date(validatedKey!.createdAt)
+        };
+
+        if (requiredPermissions && requiredPermissions!.length > 0) {
+            const missingPermissions = requiredPermissions!.filter(
                 (perm) => !foundKey.permissions[perm]
             );
 
@@ -100,7 +85,7 @@ function authenticate(requiredPermissions?: (keyof Permissions)[]) {
                     statusCode,
                     (req.headers["x-forwarded-for"] as string) || req.ip || "unknown",
                     req.headers["user-agent"],
-                    Date.now() - req.requestStartTime
+                    req.requestStartTime ? Date.now() - req.requestStartTime! : 0
                 );
 
                 return res.status(statusCode).json({
@@ -123,8 +108,8 @@ function authenticate(requiredPermissions?: (keyof Permissions)[]) {
                 req.method,
                 res.statusCode,
                 (req.headers["x-forwarded-for"] as string) || req.ip || "unknown",
-                req.headers["user-agent"],
-                Date.now() - req.requestStartTime!
+                req.headers["user-agent"] as string | undefined,
+                req.requestStartTime ? Date.now() - req.requestStartTime! : 0
             );
         });
 

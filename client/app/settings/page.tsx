@@ -10,8 +10,9 @@ import {
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import LoadingScreen from '@/components/loading-screen';
+import CategoriesManager from '@/components/CategoriesManager';
 
-type Tab = 'nodes' | 'users' | 'roles' | 'permissions';
+type Tab = 'nodes' | 'categories' | 'users' | 'roles' | 'permissions';
 
 interface User {
   id: number;
@@ -458,6 +459,17 @@ export default function SettingsPage() {
           Nodes
         </button>
         <button
+          onClick={() => setActiveTab('categories')}
+          className={`flex-1 px-4 py-2 rounded-lg transition-colors ${
+            activeTab === 'categories' 
+              ? 'bg-primary text-primary-foreground' 
+              : 'hover:bg-secondary text-muted-foreground'
+          }`}
+        >
+          <Folder className="w-4 h-4 inline mr-2" />
+          Categories
+        </button>
+        <button
           onClick={() => setActiveTab('users')}
           className={`flex-1 px-4 py-2 rounded-lg transition-colors ${
             activeTab === 'users' 
@@ -599,6 +611,13 @@ export default function SettingsPage() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Categories Tab */}
+      {activeTab === 'categories' && (
+        <div>
+          <CategoriesManager />
         </div>
       )}
 
@@ -836,7 +855,7 @@ export default function SettingsPage() {
                   type="text"
                   value={nodeForm.url}
                   onChange={(e) => setNodeForm({ ...nodeForm, url: e.target.value })}
-                  placeholder="http://localhost:4000"
+                  placeholder="http://monitoring-server.example.com"
                   className="w-full px-3 py-2 bg-secondary border border-border rounded-lg"
                   required
                 />

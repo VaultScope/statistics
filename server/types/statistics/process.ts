@@ -1,7 +1,16 @@
-export default interface ProcessInfo {
-    pid: number;
-    name: string;
-    cpu?: number;    // CPU usage % (if available)
-    memory?: number; // Memory usage in bytes (if available)
-    ppid?: number;   // Parent PID
+export interface Process {
+  pid: number;
+  name: string;
+  cpu: number;
+  memory: number;
+  ppid?: number;
+  uid?: number;
+  command?: string;
 }
+
+export interface ProcessList {
+  processes: Process[];
+  total: number;
+}
+
+export default Process;

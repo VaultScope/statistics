@@ -1,605 +1,684 @@
 #!/usr/bin/env node
 
-const fs = require('fs');
+/**
+ * VaultScope Statistics CLI
+ * Complete management tool for VaultScope Statistics
+ * Usage: vss <command> [options]
+ */
+
+const { spawn, exec } = require('child_process');
 const path = require('path');
-const { execSync, spawn } = require('child_process');
-const os = require('os');
+const fs = require('fs');
+const readline = require('readline');
+const { promisify } = require('util');
+const execAsync = promisify(exec);
 
-const VERSION = '2.0.0';
-const CONFIG_FILE = path.join(
-    os.platform() === 'win32' 
-        ? path.join(process.env.PROGRAMDATA || 'C:\\ProgramData', 'vaultscope-statistics')
-        : '/etc/vaultscope-statistics',
-    'config.json'
-);
+// Colors for terminal output
+const colors = {
+  reset: '\x1b[0m',
+  bright: '\x1b[1m',
+  dim: '\x1b[2m',
+  red: '\x1b[31m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  blue: '\x1b[34m',
+  magenta: '\x1b[35m',
+  cyan: '\x1b[36m',
+  white: '\x1b[37m'
+};
 
+// Symbols for output
+const symbols = {
+  success: '✅',
+  error: '❌',
+  warning: '⚠️',
+  info: 'ℹ️',
+  arrow: '➜',
+  dot: '•'
+};
+
+// Helper functions
+const log = {
+  success: (msg) => console.log(`${colors.green}${symbols.success} ${msg}${colors.reset}`),
+  error: (msg) => console.log(`${colors.red}${symbols.error} ${msg}${colors.reset}`),
+  warning: (msg) => console.log(`${colors.yellow}${symbols.warning} ${msg}${colors.reset}`),
+  info: (msg) => console.log(`${colors.cyan}${symbols.info} ${msg}${colors.reset}`),
+  section: (msg) => console.log(`\n${colors.bright}${colors.cyan}${msg}${colors.reset}\n`),
+  item: (msg) => console.log(`  ${colors.dim}${symbols.dot}${colors.reset} ${msg}`)
+};
+
+// Create readline interface for prompts
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout
+});
+
+const prompt = (question) => new Promise((resolve) => {
+  rl.question(`${colors.yellow}${symbols.arrow} ${question}${colors.reset} `, resolve);
+});
+
+// Check if running as root
+const isRoot = () => process.getuid && process.getuid() === 0;
+
+// Parse command line arguments
+const args = process.argv.slice(2);
+const command = args[0];
+const options = args.slice(1);
+
+// Main CLI class
 class VaultScopeCLI {
-    constructor() {
-        this.config = this.loadConfig();
-        this.platform = os.platform();
-        this.args = process.argv.slice(2);
+  constructor() {
+    this.rootDir = __dirname;
+    this.serverDir = path.join(this.rootDir, 'server');
+    this.clientDir = path.join(this.rootDir, 'client');
+  }
+
+  // Display header
+  showHeader() {
+    console.log(`
+${colors.bright}${colors.cyan}╔══════════════════════════════════════════════════════╗
+║         VaultScope Statistics CLI (vss)              ║
+║              System Management Tool                  ║
+╚══════════════════════════════════════════════════════╝${colors.reset}
+`);
+  }
+
+  // Display help
+  showHelp() {
+    this.showHeader();
+    console.log(`${colors.yellow}Usage:${colors.reset}
+  vss <command> [options]
+
+${colors.yellow}Installation & Setup:${colors.reset}
+  ${colors.green}install${colors.reset}          Install all dependencies
+  ${colors.green}setup${colors.reset}            Complete setup wizard
+  ${colors.green}init-db${colors.reset}          Initialize databases
+
+${colors.yellow}Development:${colors.reset}
+  ${colors.green}dev${colors.reset}              Start both server and client in dev mode
+  ${colors.green}server${colors.reset}           Start server only (dev mode)
+  ${colors.green}client${colors.reset}           Start client only (dev mode)
+
+${colors.yellow}Production:${colors.reset}
+  ${colors.green}build${colors.reset}            Build both applications
+  ${colors.green}start${colors.reset}            Start both in production
+  ${colors.green}stop${colors.reset}             Stop all services
+  ${colors.green}restart${colors.reset}          Restart all services
+  ${colors.green}status${colors.reset}           Show service status
+
+${colors.yellow}API Key Management:${colors.reset}
+  ${colors.green}apikey create${colors.reset} <name> [--admin] [--viewStats] ...
+  ${colors.green}apikey list${colors.reset}      List all API keys
+  ${colors.green}apikey delete${colors.reset} <key>  Delete an API key
+
+${colors.yellow}Database:${colors.reset}
+  ${colors.green}db backup${colors.reset}        Backup databases
+  ${colors.green}db restore${colors.reset}       Restore databases
+  ${colors.green}db reset${colors.reset}         Reset databases (WARNING: deletes all data)
+
+${colors.yellow}System:${colors.reset}
+  ${colors.green}logs${colors.reset}             View application logs
+  ${colors.green}health${colors.reset}           Check system health
+  ${colors.green}update${colors.reset}           Update to latest version
+  ${colors.green}config${colors.reset}           Configure settings
+  ${colors.green}ports${colors.reset}            Check/kill processes on ports
+
+${colors.yellow}Docker:${colors.reset}
+  ${colors.green}docker build${colors.reset}     Build Docker images
+  ${colors.green}docker up${colors.reset}        Start with Docker Compose
+  ${colors.green}docker down${colors.reset}      Stop Docker containers
+
+${colors.yellow}Examples:${colors.reset}
+  ${colors.dim}# Complete installation${colors.reset}
+  vss setup
+
+  ${colors.dim}# Create admin API key${colors.reset}
+  vss apikey create "Admin" --admin
+
+  ${colors.dim}# Start development servers${colors.reset}
+  vss dev
+
+  ${colors.dim}# Check system status${colors.reset}
+  vss status
+
+${colors.yellow}Options:${colors.reset}
+  --help, -h       Show this help message
+  --version, -v    Show version information
+  --verbose        Enable verbose output
+`);
+  }
+
+  // Install dependencies
+  async install() {
+    log.section('Installing Dependencies');
+    
+    try {
+      log.info('Installing root dependencies...');
+      await this.runCommand('npm', ['install'], this.rootDir);
+      
+      log.info('Installing server dependencies...');
+      await this.runCommand('npm', ['install'], this.serverDir);
+      
+      log.info('Installing client dependencies...');
+      await this.runCommand('npm', ['install'], this.clientDir);
+      
+      log.success('All dependencies installed successfully!');
+    } catch (error) {
+      log.error(`Installation failed: ${error.message}`);
+      process.exit(1);
     }
+  }
 
-    loadConfig() {
-        try {
-            if (fs.existsSync(CONFIG_FILE)) {
-                return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
-            }
-        } catch (error) {
-            console.error('Warning: Could not load configuration');
-        }
-        return null;
+  // Setup wizard
+  async setup() {
+    this.showHeader();
+    log.section('Setup Wizard');
+    
+    const setupType = await prompt('Installation type? (full/server/client) [full]:') || 'full';
+    
+    // Install dependencies
+    if (await prompt('Install dependencies? (y/n) [y]:') !== 'n') {
+      await this.install();
     }
-
-    saveConfig(config) {
-        try {
-            const dir = path.dirname(CONFIG_FILE);
-            if (!fs.existsSync(dir)) {
-                fs.mkdirSync(dir, { recursive: true });
-            }
-            fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
-        } catch (error) {
-            console.error('Error saving configuration:', error.message);
-        }
+    
+    // Initialize databases
+    if (await prompt('Initialize databases? (y/n) [y]:') !== 'n') {
+      await this.initDatabase();
     }
-
-    printHeader() {
-        console.log('\n╔══════════════════════════════════════════════════════════╗');
-        console.log('║             VaultScope Statistics Manager                ║');
-        console.log(`║                    Version ${VERSION}                        ║`);
-        console.log('╚══════════════════════════════════════════════════════════╝\n');
+    
+    // Build applications
+    if (await prompt('Build applications? (y/n) [y]:') !== 'n') {
+      await this.build();
     }
-
-    printHelp() {
-        this.printHeader();
-        console.log('Usage: statistics <command> [options]\n');
-        console.log('Commands:');
-        console.log('  status                   Show service status');
-        console.log('  start [component]        Start services (server/client/all)');
-        console.log('  stop [component]         Stop services (server/client/all)');
-        console.log('  restart [component]      Restart services (server/client/all)');
-        console.log('  logs [component]         View logs (server/client/all)');
-        console.log('  config                   Show configuration');
-        console.log('  info                     Display installation information');
-        console.log('  apikey                   Manage API keys');
-        console.log('  fix-client               Show commands to fix client service');
-        console.log('  update                   Update VaultScope Statistics');
-        console.log('  uninstall                Uninstall VaultScope Statistics');
-        console.log('  version, -v              Show version');
-        console.log('  help, -h                 Show this help message');
-        console.log('\nExamples:');
-        console.log('  statistics status               # Show service status');
-        console.log('  statistics start server         # Start server only');
-        console.log('  statistics logs client          # View client logs');
-        console.log('  statistics fix-client           # Get fix instructions for client');
-        console.log('  statistics uninstall            # Remove everything');
-        console.log('\nConfiguration file:', CONFIG_FILE);
+    
+    // Create admin API key
+    if (setupType !== 'client' && await prompt('Create admin API key? (y/n) [y]:') !== 'n') {
+      const keyName = await prompt('Admin key name [Admin Key]:') || 'Admin Key';
+      await this.createApiKey(keyName, ['--admin']);
     }
-
-    showStatistics() {
-        this.printHeader();
-        
-        if (!this.config) {
-            console.log('❌ VaultScope Statistics is not installed or configured.\n');
-            console.log('To install, run the appropriate installer:');
-            console.log('  Windows: .\\installer.ps1');
-            console.log('  Linux/Mac: ./installer.sh\n');
-            return;
-        }
-
-        console.log('📊 Installation Information:\n');
-        console.log(`  Installation Path: ${this.config.installPath}`);
-        console.log(`  Installation Date: ${this.config.installDate}`);
-        console.log(`  Platform: ${this.config.platform}`);
-        console.log(`  Components: ${this.config.components.join(', ')}`);
-        
-        if (this.config.server) {
-            console.log('\n📡 Server Configuration:');
-            console.log(`  Path: ${this.config.server.path}`);
-            console.log(`  URL: ${this.config.server.url}`);
-            console.log(`  Port: ${this.config.server.port}`);
-            console.log(`  API Key File: ${this.config.server.apiKeyFile}`);
-        }
-        
-        if (this.config.client) {
-            console.log('\n🖥️  Client Configuration:');
-            console.log(`  Path: ${this.config.client.path}`);
-            console.log(`  URL: ${this.config.client.url}`);
-            console.log(`  Port: ${this.config.client.port}`);
-        }
-        
-        console.log('\n📦 Service Manager:');
-        console.log(`  Type: ${this.config.serviceManager}`);
-        
-        if (this.config.serviceManager === 'systemd') {
-            console.log('  Services: vaultscope-statistics-server.service, vaultscope-statistics-client.service');
-        } else if (this.config.serviceManager === 'pm2') {
-            console.log('  Processes: vaultscope-server, vaultscope-client');
-        }
-        
-        this.showStatus();
+    
+    // Configure systemd services
+    if (isRoot() && await prompt('Configure systemd services? (y/n) [n]:') === 'y') {
+      await this.configureSystemd();
     }
+    
+    log.success('Setup completed successfully!');
+    log.info('You can now start the application with: vss start');
+    rl.close();
+  }
 
-    showStatus() {
-        console.log('\n🔄 Service Status:\n');
-        
-        // Add URLs for when config is not available
-        const defaultUrls = {
-            server: 'http://localhost:4000',
-            client: 'http://localhost:4001'
-        };
-        
-        try {
-            // Always try to check systemd services, even without config
-            if (!this.config || this.config?.serviceManager === 'systemd') {
-                // Check both services if no config or check configured components
-                // Try new service names first, then fall back to old ones
-                if (!this.config || this.config.components.includes('server')) {
-                    let serverStatus = this.getSystemdStatus('vaultscope-statistics-server');
-                    if (serverStatus === '❓ Unknown') {
-                        serverStatus = this.getSystemdStatus('statistics-server');
-                    }
-                    console.log(`  Server: ${serverStatus}`);
-                }
-                if (!this.config || this.config.components.includes('client')) {
-                    let clientStatus = this.getSystemdStatus('vaultscope-statistics-client');
-                    if (clientStatus === '❓ Unknown') {
-                        clientStatus = this.getSystemdStatus('statistics-client');
-                    }
-                    console.log(`  Client: ${clientStatus}`);
-                }
-            } else if (this.config?.serviceManager === 'pm2') {
-                const pm2List = execSync('pm2 list --no-color', { encoding: 'utf8' });
-                
-                if (this.config.components.includes('server')) {
-                    const serverRunning = pm2List.includes('statistics-server') && 
-                                        pm2List.includes('online');
-                    console.log(`  Server: ${serverRunning ? '✅ Running' : '❌ Stopped'}`);
-                }
-                if (this.config.components.includes('client')) {
-                    const clientRunning = pm2List.includes('statistics-client') && 
-                                        pm2List.includes('online');
-                    console.log(`  Client: ${clientRunning ? '✅ Running' : '❌ Stopped'}`);
-                }
-            }
-            
-            console.log('\n🔗 Access URLs:');
-            if (this.config?.server) {
-                console.log(`  Server API: ${this.config.server.url}`);
-            } else {
-                console.log(`  Server API: ${defaultUrls.server}`);
-            }
-            if (this.config?.client) {
-                console.log(`  Client Dashboard: ${this.config.client.url}`);
-            } else {
-                console.log(`  Client Dashboard: ${defaultUrls.client}`);
-            }
-        } catch (error) {
-            console.log('  Unable to determine service status');
-        }
+  // Initialize databases
+  async initDatabase() {
+    log.section('Initializing Databases');
+    
+    // Server database
+    log.info('Initializing server database...');
+    const serverDbPath = path.join(this.serverDir, 'database.db');
+    if (!fs.existsSync(serverDbPath)) {
+      // Run server briefly to create database
+      const child = spawn('npx', ['ts-node', 'index.ts'], {
+        cwd: this.serverDir,
+        detached: true,
+        stdio: 'ignore'
+      });
+      
+      // Give it time to initialize
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      
+      // Kill the process
+      try {
+        process.kill(-child.pid);
+      } catch (e) {
+        // Process might have already exited
+      }
+      
+      if (fs.existsSync(serverDbPath)) {
+        log.success('Server database initialized');
+      }
+    } else {
+      log.info('Server database already exists');
     }
-
-    getSystemdStatus(service) {
-        try {
-            const status = execSync(`systemctl is-active ${service}`, { encoding: 'utf8' }).trim();
-            return status === 'active' ? '✅ Running' : '❌ Stopped';
-        } catch {
-            return '❓ Unknown';
-        }
+    
+    // Client database
+    log.info('Initializing client database...');
+    const clientDbPath = path.join(this.clientDir, 'database.json');
+    if (!fs.existsSync(clientDbPath)) {
+      const defaultDb = {
+        users: [],
+        nodes: [],
+        categories: [
+          { id: 1, name: 'Production', color: '#22c55e', icon: 'server', createdAt: new Date().toISOString() },
+          { id: 2, name: 'Development', color: '#3b82f6', icon: 'code', createdAt: new Date().toISOString() },
+          { id: 3, name: 'Testing', color: '#f59e0b', icon: 'flask', createdAt: new Date().toISOString() },
+          { id: 4, name: 'Backup', color: '#8b5cf6', icon: 'database', createdAt: new Date().toISOString() },
+          { id: 5, name: 'Monitoring', color: '#ef4444', icon: 'activity', createdAt: new Date().toISOString() }
+        ],
+        roles: [
+          {
+            id: 'admin',
+            name: 'Administrator',
+            description: 'Full system access',
+            permissions: ['nodes.view', 'nodes.create', 'nodes.edit', 'nodes.delete', 'users.view', 'users.create', 'users.edit', 'users.delete', 'system.settings'],
+            isSystem: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          },
+          {
+            id: 'viewer',
+            name: 'Viewer',
+            description: 'Read-only access',
+            permissions: ['nodes.view', 'users.view'],
+            isSystem: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          }
+        ]
+      };
+      
+      fs.writeFileSync(clientDbPath, JSON.stringify(defaultDb, null, 2));
+      log.success('Client database initialized');
+    } else {
+      log.info('Client database already exists');
     }
+  }
 
-    startService(component = 'all') {
-        // Allow starting services even without config
-        const components = component === 'all' ? ['server', 'client'] : [component];
+  // Build applications
+  async build() {
+    log.section('Building Applications');
+    
+    try {
+      log.info('Building server...');
+      await this.runCommand('npm', ['run', 'build'], this.serverDir);
+      
+      log.info('Building client...');
+      await this.runCommand('npm', ['run', 'build'], this.clientDir);
+      
+      log.success('Build completed successfully!');
+    } catch (error) {
+      log.error(`Build failed: ${error.message}`);
+      process.exit(1);
+    }
+  }
 
-        console.log(`Starting ${component}...`);
+  // Start services
+  async start(mode = 'dev') {
+    log.section(`Starting Services (${mode} mode)`);
+    
+    // Check if ports are available
+    await this.checkPorts();
+    
+    if (mode === 'dev') {
+      await this.runCommand('npm', ['run', 'dev'], this.rootDir, false);
+    } else {
+      await this.runCommand('npm', ['run', 'start:all'], this.rootDir, false);
+    }
+  }
+
+  // Check and kill processes on ports
+  async checkPorts() {
+    log.info('Checking ports 4000 and 4001...');
+    
+    try {
+      const { stdout: port4000 } = await execAsync('lsof -ti:4000');
+      if (port4000) {
+        log.warning('Port 4000 is in use');
+        if (await prompt('Kill process on port 4000? (y/n) [y]:') !== 'n') {
+          await execAsync('lsof -ti:4000 | xargs kill -9');
+          log.success('Port 4000 cleared');
+        }
+      }
+    } catch (e) {
+      // Port is free
+    }
+    
+    try {
+      const { stdout: port4001 } = await execAsync('lsof -ti:4001');
+      if (port4001) {
+        log.warning('Port 4001 is in use');
+        if (await prompt('Kill process on port 4001? (y/n) [y]:') !== 'n') {
+          await execAsync('lsof -ti:4001 | xargs kill -9');
+          log.success('Port 4001 cleared');
+        }
+      }
+    } catch (e) {
+      // Port is free
+    }
+  }
+
+  // API Key management
+  async manageApiKeys(action, keyName, permissions = []) {
+    log.section('API Key Management');
+    
+    const args = ['run', 'apikey', action];
+    if (keyName) args.push(keyName);
+    if (permissions.length > 0) {
+      args.push('--');
+      args.push(...permissions);
+    }
+    
+    await this.runCommand('npm', args, this.serverDir, false);
+  }
+
+  // Create API key shortcut
+  async createApiKey(name, permissions) {
+    await this.manageApiKeys('create', name, permissions);
+  }
+
+  // Check system health
+  async checkHealth() {
+    log.section('System Health Check');
+    
+    // Check server
+    try {
+      const { stdout } = await execAsync('curl -s http://localhost:4000/health');
+      const health = JSON.parse(stdout);
+      log.success(`Server: ${health.status} (uptime: ${health.uptime})`);
+    } catch (e) {
+      log.error('Server: Not responding');
+    }
+    
+    // Check client
+    try {
+      await execAsync('curl -s -o /dev/null -w "%{http_code}" http://localhost:4001');
+      log.success('Client: Running');
+    } catch (e) {
+      log.error('Client: Not responding');
+    }
+    
+    // Check databases
+    if (fs.existsSync(path.join(this.serverDir, 'database.db'))) {
+      log.success('Server database: Present');
+    } else {
+      log.warning('Server database: Not found');
+    }
+    
+    if (fs.existsSync(path.join(this.clientDir, 'database.json'))) {
+      log.success('Client database: Present');
+    } else {
+      log.warning('Client database: Not found');
+    }
+  }
+
+  // Configure systemd services
+  async configureSystemd() {
+    log.section('Configuring Systemd Services');
+    
+    if (!isRoot()) {
+      log.error('This command requires root privileges. Please run with sudo.');
+      return;
+    }
+    
+    // Server service
+    const serverService = `[Unit]
+Description=VaultScope Statistics Server
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=${this.serverDir}
+Environment="NODE_ENV=production"
+Environment="PORT=4000"
+ExecStart=/usr/bin/node dist/index.js
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target`;
+    
+    fs.writeFileSync('/etc/systemd/system/vss-server.service', serverService);
+    
+    // Client service
+    const clientService = `[Unit]
+Description=VaultScope Statistics Client
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=${this.clientDir}
+Environment="NODE_ENV=production"
+Environment="PORT=4001"
+ExecStart=/usr/bin/npm start
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target`;
+    
+    fs.writeFileSync('/etc/systemd/system/vss-client.service', clientService);
+    
+    await execAsync('systemctl daemon-reload');
+    log.success('Systemd services configured');
+    log.info('Enable services with: systemctl enable vss-server vss-client');
+  }
+
+  // Database backup
+  async backupDatabase() {
+    log.section('Database Backup');
+    
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupDir = path.join(this.rootDir, 'backups', timestamp);
+    
+    fs.mkdirSync(backupDir, { recursive: true });
+    
+    // Backup server database
+    const serverDb = path.join(this.serverDir, 'database.db');
+    if (fs.existsSync(serverDb)) {
+      fs.copyFileSync(serverDb, path.join(backupDir, 'database.db'));
+      log.success('Server database backed up');
+    }
+    
+    // Backup client database
+    const clientDb = path.join(this.clientDir, 'database.json');
+    if (fs.existsSync(clientDb)) {
+      fs.copyFileSync(clientDb, path.join(backupDir, 'database.json'));
+      log.success('Client database backed up');
+    }
+    
+    log.success(`Backup saved to: ${backupDir}`);
+  }
+
+  // View logs
+  async viewLogs() {
+    log.section('Application Logs');
+    
+    const logType = await prompt('Which logs? (server/client/all) [all]:') || 'all';
+    
+    if (logType === 'server' || logType === 'all') {
+      console.log(`\n${colors.cyan}=== Server Logs ===${colors.reset}`);
+      if (fs.existsSync('/var/log/vss-server.log')) {
+        await this.runCommand('tail', ['-f', '/var/log/vss-server.log'], '.', false);
+      } else {
+        log.info('No server logs found. Try: journalctl -u vss-server -f');
+      }
+    }
+    
+    if (logType === 'client' || logType === 'all') {
+      console.log(`\n${colors.cyan}=== Client Logs ===${colors.reset}`);
+      if (fs.existsSync('/var/log/vss-client.log')) {
+        await this.runCommand('tail', ['-f', '/var/log/vss-client.log'], '.', false);
+      } else {
+        log.info('No client logs found. Try: journalctl -u vss-client -f');
+      }
+    }
+  }
+
+  // Run command helper
+  runCommand(command, args, cwd, wait = true) {
+    return new Promise((resolve, reject) => {
+      const child = spawn(command, args, {
+        cwd,
+        stdio: wait ? 'pipe' : 'inherit',
+        shell: true
+      });
+      
+      if (wait) {
+        let output = '';
         
-        components.forEach(comp => {
-            if (this.config && !this.config.components.includes(comp)) {
-                console.log(`  ${comp}: Not configured`);
-                return;
-            }
-            
-            try {
-                // Default to systemd with new service names
-                if (!this.config || this.config.serviceManager === 'systemd') {
-                    try {
-                        execSync(`sudo systemctl start vaultscope-statistics-${comp}`, { stdio: 'inherit' });
-                    } catch {
-                        // Fallback to old service names
-                        execSync(`sudo systemctl start statistics-${comp}`, { stdio: 'inherit' });
-                    }
-                } else if (this.config.serviceManager === 'pm2') {
-                    execSync(`pm2 start statistics-${comp}`, { stdio: 'inherit' });
-                }
-                console.log(`  ${comp}: ✅ Started`);
-            } catch (error) {
-                console.error(`  ${comp}: ❌ Failed to start`);
-            }
+        child.stdout?.on('data', (data) => {
+          output += data.toString();
+          if (options.includes('--verbose')) {
+            process.stdout.write(data);
+          }
         });
-    }
-
-    stopService(component = 'all') {
-        // Allow stopping services even without config
-        const components = component === 'all' ? ['server', 'client'] : [component];
-
-        console.log(`Stopping ${component}...`);
         
-        components.forEach(comp => {
-            if (this.config && !this.config.components.includes(comp)) {
-                console.log(`  ${comp}: Not configured`);
-                return;
-            }
-            
-            try {
-                // Default to systemd with new service names
-                if (!this.config || this.config.serviceManager === 'systemd') {
-                    try {
-                        execSync(`sudo systemctl stop vaultscope-statistics-${comp}`, { stdio: 'inherit' });
-                    } catch {
-                        // Fallback to old service names
-                        execSync(`sudo systemctl stop statistics-${comp}`, { stdio: 'inherit' });
-                    }
-                } else if (this.config.serviceManager === 'pm2') {
-                    execSync(`pm2 stop statistics-${comp}`, { stdio: 'inherit' });
-                }
-                console.log(`  ${comp}: ✅ Stopped`);
-            } catch (error) {
-                console.error(`  ${comp}: ❌ Failed to stop`);
-            }
-        });
-    }
-
-    restartService(component = 'all') {
-        // Allow restarting services even without config
-        const components = component === 'all' ? ['server', 'client'] : [component];
-
-        console.log(`Restarting ${component}...`);
-        
-        components.forEach(comp => {
-            if (this.config && !this.config.components.includes(comp)) {
-                console.log(`  ${comp}: Not configured`);
-                return;
-            }
-            
-            try {
-                // Default to systemd with new service names
-                if (!this.config || this.config.serviceManager === 'systemd') {
-                    try {
-                        execSync(`sudo systemctl restart vaultscope-statistics-${comp}`, { stdio: 'inherit' });
-                    } catch {
-                        // Fallback to old service names
-                        execSync(`sudo systemctl restart statistics-${comp}`, { stdio: 'inherit' });
-                    }
-                } else if (this.config.serviceManager === 'pm2') {
-                    execSync(`pm2 restart statistics-${comp}`, { stdio: 'inherit' });
-                }
-                console.log(`  ${comp}: ✅ Restarted`);
-            } catch (error) {
-                console.error(`  ${comp}: ❌ Failed to restart`);
-            }
-        });
-    }
-
-    viewLogs(component = 'all') {
-        // Allow viewing logs even without config
-        if (component === 'all') {
-            console.log('Viewing all logs...\n');
-            if (this.config?.serviceManager === 'pm2') {
-                spawn('pm2', ['logs'], { stdio: 'inherit' });
-            } else {
-                console.log('Use these commands to view logs:');
-                console.log('  Server: sudo journalctl -u vaultscope-statistics-server -f');
-                console.log('  Client: sudo journalctl -u vaultscope-statistics-client -f');
-            }
-        } else {
-            if (this.config && !this.config.components.includes(component)) {
-                console.error(`❌ ${component} is not installed`);
-                return;
-            }
-            
-            console.log(`Viewing ${component} logs...\n`);
-            if (!this.config || this.config.serviceManager === 'systemd') {
-                // Try new service names first
-                spawn('journalctl', ['-u', `vaultscope-statistics-${component}`, '-f'], { stdio: 'inherit' });
-            } else if (this.config?.serviceManager === 'pm2') {
-                spawn('pm2', ['logs', `statistics-${component}`], { stdio: 'inherit' });
-            }
-        }
-    }
-
-    showConfig() {
-        if (!this.config) {
-            console.error('❌ No configuration found');
-            return;
-        }
-        
-        console.log('\n📋 Current Configuration:\n');
-        console.log(JSON.stringify(this.config, null, 2));
-    }
-
-    manageApiKeys() {
-        console.log('\n🔑 API Key Management\n');
-        
-        // Try to run the API key script from current directory first
-        const localApiKeyScript = path.join(process.cwd(), 'server', 'cli', 'apikey.ts');
-        const distApiKeyScript = path.join(process.cwd(), 'dist', 'server', 'cli', 'apikey.js');
-        
-        const args = this.args.slice(1);
-        
-        if (fs.existsSync(localApiKeyScript)) {
-            // Run TypeScript version if available
-            spawn('npx', ['ts-node', localApiKeyScript, ...args], { 
-                stdio: 'inherit',
-                cwd: process.cwd()
-            });
-        } else if (fs.existsSync(distApiKeyScript)) {
-            // Run compiled JavaScript version
-            spawn('node', [distApiKeyScript, ...args], { 
-                stdio: 'inherit',
-                cwd: process.cwd()
-            });
-        } else if (this.config?.server) {
-            // Fallback to configured path
-            const serverPath = this.config.server.path;
-            const apiKeyScript = path.join(serverPath, 'cli', 'apikey.js');
-            
-            if (fs.existsSync(apiKeyScript)) {
-                spawn('node', [apiKeyScript, ...args], { 
-                    stdio: 'inherit',
-                    cwd: serverPath
-                });
-            } else {
-                console.log('API key management script not found.');
-                console.log('Try running: npm run apikey');
-            }
-        } else {
-            console.log('API key management script not found.');
-            console.log('Try running: npm run apikey');
-        }
-    }
-
-    async uninstall() {
-        const readline = require('readline');
-        const rl = readline.createInterface({
-            input: process.stdin,
-            output: process.stdout
+        child.stderr?.on('data', (data) => {
+          if (options.includes('--verbose')) {
+            process.stderr.write(data);
+          }
         });
         
-        console.log('\n⚠️  WARNING: This will completely remove VaultScope Statistics\n');
-        console.log('The following will be removed:');
-        console.log('  • All installed components (server and client)');
-        console.log('  • Configuration files');
-        console.log('  • System services');
-        console.log('  • Log files');
-        if (this.config?.installPath) {
-            console.log(`  • Installation directory: ${this.config.installPath}`);
-        }
-        console.log('\n');
-        
-        const answer = await new Promise(resolve => {
-            rl.question('Are you sure you want to continue? (yes/no): ', resolve);
+        child.on('close', (code) => {
+          if (code === 0) {
+            resolve(output);
+          } else {
+            reject(new Error(`Command failed with exit code ${code}`));
+          }
         });
-        rl.close();
-        
-        if (answer.toLowerCase() !== 'yes') {
-            console.log('Uninstall cancelled.');
-            return;
+      } else {
+        child.on('error', reject);
+        if (wait === false) {
+          // Don't wait for long-running processes
+          setTimeout(() => resolve(), 1000);
         }
-        
-        console.log('\nUninstalling VaultScope Statistics...\n');
-        
-        try {
-            if (this.config) {
-                if (this.config.serviceManager === 'systemd') {
-                    console.log('Stopping and removing systemd services...');
-                    this.config.components.forEach(comp => {
-                        try {
-                            // Try new service names first
-                            execSync(`sudo systemctl stop vaultscope-statistics-${comp}`, { stdio: 'pipe' });
-                            execSync(`sudo systemctl disable vaultscope-statistics-${comp}`, { stdio: 'pipe' });
-                            execSync(`sudo rm -f /etc/systemd/system/vaultscope-statistics-${comp}.service`, { stdio: 'pipe' });
-                        } catch {
-                            // Fallback to old service names
-                            try {
-                                execSync(`sudo systemctl stop statistics-${comp}`, { stdio: 'pipe' });
-                                execSync(`sudo systemctl disable statistics-${comp}`, { stdio: 'pipe' });
-                                execSync(`sudo rm -f /etc/systemd/system/statistics-${comp}.service`, { stdio: 'pipe' });
-                            } catch {}
-                        }
-                    });
-                    execSync('sudo systemctl daemon-reload', { stdio: 'pipe' });
-                } else if (this.config.serviceManager === 'pm2') {
-                    console.log('Stopping and removing PM2 processes...');
-                    this.config.components.forEach(comp => {
-                        try {
-                            execSync(`pm2 delete statistics-${comp}`, { stdio: 'pipe' });
-                        } catch {}
-                    });
-                    execSync('pm2 save', { stdio: 'pipe' });
-                }
-                
-                if (this.config.installPath && fs.existsSync(this.config.installPath)) {
-                    console.log(`Removing installation directory: ${this.config.installPath}`);
-                    
-                    if (this.platform === 'win32') {
-                        execSync(`rmdir /s /q "${this.config.installPath}"`, { stdio: 'pipe' });
-                    } else {
-                        execSync(`rm -rf "${this.config.installPath}"`, { stdio: 'pipe' });
-                    }
-                }
-            }
-            
-            console.log('Removing configuration file...');
-            if (fs.existsSync(CONFIG_FILE)) {
-                fs.unlinkSync(CONFIG_FILE);
-            }
-            
-            console.log('Removing vaultscope command...');
-            if (this.platform === 'win32') {
-                try {
-                    execSync('npm uninstall -g vaultscope-cli', { stdio: 'pipe' });
-                } catch {}
-            } else {
-                try {
-                    execSync('sudo npm uninstall -g vaultscope-cli', { stdio: 'pipe' });
-                } catch {}
-            }
-            
-            console.log('\n✅ VaultScope Statistics has been completely uninstalled.\n');
-        } catch (error) {
-            console.error('❌ Error during uninstall:', error.message);
-            console.log('\nPartial uninstall may have occurred. Manual cleanup may be required.');
-        }
-    }
-
-    async update() {
-        console.log('\n🔄 Checking for updates...\n');
-        
-        if (!this.config) {
-            console.error('❌ VaultScope Statistics is not installed');
-            return;
-        }
-        
-        try {
-            console.log('Downloading latest version...');
-            
-            const installerUrl = this.platform === 'win32'
-                ? 'https://raw.githubusercontent.com/VaultScope/statistics/main/installer.ps1'
-                : 'https://raw.githubusercontent.com/VaultScope/statistics/main/installer.sh';
-            
-            const installerPath = path.join(os.tmpdir(), this.platform === 'win32' ? 'installer.ps1' : 'installer.sh');
-            
-            const https = require('https');
-            const file = fs.createWriteStream(installerPath);
-            
-            await new Promise((resolve, reject) => {
-                https.get(installerUrl, response => {
-                    response.pipe(file);
-                    file.on('finish', () => {
-                        file.close();
-                        resolve();
-                    });
-                }).on('error', reject);
-            });
-            
-            console.log('Running update...');
-            
-            if (this.platform === 'win32') {
-                execSync(`powershell -ExecutionPolicy Bypass -File "${installerPath}" -Silent`, { stdio: 'inherit' });
-            } else {
-                execSync(`chmod +x "${installerPath}" && "${installerPath}" --silent`, { stdio: 'inherit' });
-            }
-            
-            console.log('\n✅ Update completed successfully!\n');
-        } catch (error) {
-            console.error('❌ Update failed:', error.message);
-        }
-    }
-
-    fixClientService() {
-        console.log('\n🔧 Fixing Client Service\n');
-        
-        if (this.platform === 'win32') {
-            console.error('This command is only available on Linux/Unix systems');
-            return;
-        }
-        
-        console.log('This will fix the client service by:');
-        console.log('  1. Installing client dependencies in production directory');
-        console.log('  2. Building the Next.js application');
-        console.log('  3. Updating the systemd service configuration');
-        console.log('');
-        console.log('Run the following commands on your production server:\n');
-        console.log('  cd /var/www/vaultscope-statistics/client');
-        console.log('  sudo npm install --production');
-        console.log('  sudo npm run build');
-        console.log('  sudo chown -R www-data:www-data /var/www/vaultscope-statistics');
-        console.log('  sudo systemctl restart vaultscope-statistics-client');
-        console.log('');
-        console.log('Then check the status with:');
-        console.log('  sudo systemctl status vaultscope-statistics-client');
-    }
-
-    async run() {
-        const command = this.args[0];
-        const subCommand = this.args[1];
-        
-        // For status command, always show it even without config
-        if (command === 'status' || !command) {
-            this.showStatus();
-            return;
-        }
-        
-        switch (command) {
-            case 'info':
-                this.showStatistics();
-                break;
-                
-            case 'start':
-                this.startService(subCommand);
-                break;
-                
-            case 'stop':
-                this.stopService(subCommand);
-                break;
-                
-            case 'restart':
-                this.restartService(subCommand);
-                break;
-                
-            case 'logs':
-                this.viewLogs(subCommand);
-                break;
-                
-            case 'config':
-                this.showConfig();
-                break;
-                
-            case 'apikey':
-                this.manageApiKeys();
-                break;
-                
-            case 'fix-client':
-            case 'fixclient':
-                this.fixClientService();
-                break;
-                
-            case 'update':
-                await this.update();
-                break;
-                
-            case 'uninstall':
-                await this.uninstall();
-                break;
-                
-            case 'version':
-            case '-v':
-            case '--version':
-                console.log(`VaultScope Statistics CLI v${VERSION}`);
-                break;
-                
-            case 'help':
-            case '-h':
-            case '--help':
-            case undefined:
-                this.printHelp();
-                break;
-                
-            default:
-                console.error(`Unknown command: ${command}`);
-                console.log('Run "statistics help" for available commands');
-                process.exit(1);
-        }
-    }
-}
-
-if (require.main === module) {
-    const cli = new VaultScopeCLI();
-    cli.run().catch(error => {
-        console.error('Error:', error.message);
-        process.exit(1);
+      }
     });
+  }
+
+  // Main command router
+  async execute() {
+    switch (command) {
+      case 'install':
+        await this.install();
+        break;
+      
+      case 'setup':
+        await this.setup();
+        break;
+      
+      case 'init-db':
+        await this.initDatabase();
+        break;
+      
+      case 'dev':
+        await this.start('dev');
+        break;
+      
+      case 'server':
+        await this.runCommand('npm', ['run', 'server'], this.rootDir, false);
+        break;
+      
+      case 'client':
+        await this.runCommand('npm', ['run', 'client'], this.rootDir, false);
+        break;
+      
+      case 'build':
+        await this.build();
+        break;
+      
+      case 'start':
+        await this.start('production');
+        break;
+      
+      case 'stop':
+        log.info('Stopping services...');
+        await execAsync('pkill -f "node.*4000" || true');
+        await execAsync('pkill -f "node.*4001" || true');
+        log.success('Services stopped');
+        break;
+      
+      case 'restart':
+        await this.execute('stop');
+        await this.execute('start');
+        break;
+      
+      case 'status':
+      case 'health':
+        await this.checkHealth();
+        break;
+      
+      case 'apikey':
+        const subCommand = options[0];
+        const keyName = options[1];
+        const perms = options.slice(2);
+        await this.manageApiKeys(subCommand, keyName, perms);
+        break;
+      
+      case 'db':
+        const dbCommand = options[0];
+        if (dbCommand === 'backup') {
+          await this.backupDatabase();
+        } else if (dbCommand === 'reset') {
+          if (await prompt('WARNING: This will delete all data. Continue? (y/n) [n]:') === 'y') {
+            fs.unlinkSync(path.join(this.serverDir, 'database.db'));
+            fs.unlinkSync(path.join(this.clientDir, 'database.json'));
+            log.success('Databases reset');
+          }
+        }
+        break;
+      
+      case 'logs':
+        await this.viewLogs();
+        break;
+      
+      case 'ports':
+        await this.checkPorts();
+        break;
+      
+      case 'docker':
+        const dockerCmd = options[0];
+        if (dockerCmd === 'build') {
+          await this.runCommand('docker-compose', ['build'], this.rootDir);
+        } else if (dockerCmd === 'up') {
+          await this.runCommand('docker-compose', ['up', '-d'], this.rootDir);
+        } else if (dockerCmd === 'down') {
+          await this.runCommand('docker-compose', ['down'], this.rootDir);
+        }
+        break;
+      
+      case 'update':
+        log.info('Updating to latest version...');
+        await this.runCommand('git', ['pull'], this.rootDir);
+        await this.install();
+        await this.build();
+        log.success('Update completed!');
+        break;
+      
+      case '--version':
+      case '-v':
+        const pkg = JSON.parse(fs.readFileSync(path.join(this.rootDir, 'package.json'), 'utf-8'));
+        console.log(`VaultScope Statistics v${pkg.version}`);
+        break;
+      
+      case 'help':
+      case '--help':
+      case '-h':
+      case undefined:
+        this.showHelp();
+        break;
+      
+      default:
+        log.error(`Unknown command: ${command}`);
+        console.log('Run "vss help" for usage information');
+        process.exit(1);
+    }
+    
+    rl.close();
+  }
 }
 
-module.exports = VaultScopeCLI;
+// Main execution
+const cli = new VaultScopeCLI();
+
+// Handle errors
+process.on('unhandledRejection', (error) => {
+  log.error(`Error: ${error.message}`);
+  process.exit(1);
+});
+
+// Execute CLI
+cli.execute().catch((error) => {
+  log.error(`Error: ${error.message}`);
+  process.exit(1);
+});

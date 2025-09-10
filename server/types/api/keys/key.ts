@@ -1,4 +1,4 @@
-import Permissions from "./permissions";
+import { ApiKeyPermissions as Permissions } from "./permissions";
 
 export default interface Key {
     uuid: string,

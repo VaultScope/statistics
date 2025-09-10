@@ -1,1222 +1,995 @@
 #!/bin/bash
 
-# VaultScope Statistics Software Installer v8.0 - PRODUCTION READY
-# Standalone installer with proper systemd service configuration
+#############################################
+# VaultScope Statistics Installer v6.2.2
+#############################################
 
-# ============================================================================
-# CRITICAL: Disable exit on error during cleanup operations
-# ============================================================================
-set +e  # Don't exit on errors - we handle them properly
+set -e
 
-# ============================================================================
-# GLOBAL CONFIGURATION
-# ============================================================================
-INSTALL_DIR="/var/www/vaultscope-statistics"
-CONFIG_DIR="/etc/vaultscope-statistics"
-LOG_DIR="/var/log/vaultscope-statistics"
-BACKUP_DIR="/var/backups/vaultscope-statistics"
+VSS_VERSION="6.2.6"
+INSTALL_DIR_SERVER="/var/www/vs-statistics-server"
+INSTALL_DIR_CLIENT="/var/www/vs-statistics-client"
+INSTALL_DIR_FULL="/var/www/statistics"
+LOG_DIR="/var/log/vss-installer"
+LOG_FILE="$LOG_DIR/install-$(date +%Y%m%d-%H%M%S).log"
+CONFIG_FILE="/etc/vss/config.json"
+CONFIG_DIR="/etc/vss"
 REPO_URL="https://github.com/vaultscope/statistics.git"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+INSTALL_TYPE=""
+BRANCH="main"
+USE_NGINX=false
+SERVER_DOMAIN=""
+CLIENT_DOMAIN=""
+USE_SSL=false
 NODE_VERSION="20"
+API_KEY=""
+ADMIN_KEY=""
+SSL_EMAIL=""
 
-# State tracking
-IS_CLEANING=false
-LOG_FILE=""
+# Always run in interactive mode - use /dev/tty for input when piped
+INTERACTIVE=true
 
-# System detection
-OS=""
-PKG_MANAGER=""
-SERVICE_MANAGER=""
+mkdir -p "$LOG_DIR"
+exec 1> >(tee -a "$LOG_FILE")
+exec 2>&1
 
-# ============================================================================
-# COLOR SETUP (WORKS EVERYWHERE)
-# ============================================================================
-if [ -t 1 ]; then
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[1;33m'
-    BLUE='\033[0;34m'
-    CYAN='\033[0;36m'
-    WHITE='\033[1;37m'
-    BOLD='\033[1m'
-    NC='\033[0m'
-else
-    RED=''
-    GREEN=''
-    YELLOW=''
-    BLUE=''
-    CYAN=''
-    WHITE=''
-    BOLD=''
-    NC=''
-fi
-
-# ============================================================================
-# SAFE LOGGING FUNCTIONS
-# ============================================================================
-safe_log() {
-    # NEVER fails, even if log file is deleted
-    if [ -n "$LOG_FILE" ] && [ -f "$LOG_FILE" ] && [ "$IS_CLEANING" != "true" ]; then
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE" 2>/dev/null || true
-    fi
+log() {
+    echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} $1"
 }
 
-setup_logging() {
-    # Create log directory and file SAFELY
-    if [ "$IS_CLEANING" != "true" ]; then
-        mkdir -p "$LOG_DIR" 2>/dev/null || true
-        LOG_FILE="$LOG_DIR/install_$(date +%Y%m%d_%H%M%S).log"
-        touch "$LOG_FILE" 2>/dev/null || true
-    fi
+error() {
+    echo -e "${RED}[ERROR]${NC} $1" >&2
 }
 
-# ============================================================================
-# OUTPUT FUNCTIONS (NEVER FAIL)
-# ============================================================================
-print_header() {
-    clear
-    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${WHITE}${BOLD}      VaultScope Statistics Software Installer v8.0              ${CYAN}║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════╝${NC}"
-    echo ""
+warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
 }
 
-print_section() {
-    echo ""
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${WHITE}${BOLD}  $1${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
+info() {
+    echo -e "${CYAN}[INFO]${NC} $1"
 }
 
-print_success() {
-    echo -e "${GREEN}✓${NC} $*"
-    safe_log "SUCCESS: $*"
+success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
 }
 
-print_error() {
-    echo -e "${RED}✗${NC} $*" >&2
-    safe_log "ERROR: $*"
-}
-
-print_warning() {
-    echo -e "${YELLOW}⚠${NC} $*"
-    safe_log "WARNING: $*"
-}
-
-print_info() {
-    echo -e "${BLUE}ℹ${NC} $*"
-    safe_log "INFO: $*"
-}
-
-print_progress() {
-    printf "${CYAN}⟳${NC} %s..." "$*"
-    safe_log "PROGRESS: $*"
-}
-
-print_done() {
-    echo -e " ${GREEN}done${NC}"
-}
-
-# ============================================================================
-# SYSTEM DETECTION (BULLETPROOF)
-# ============================================================================
-detect_os() {
-    print_progress "Detecting operating system"
-    
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        OS="macos"
-        PKG_MANAGER="brew"
-        SERVICE_MANAGER="launchd"
-    elif [ -f /etc/os-release ]; then
-        . /etc/os-release
-        case "${ID:-unknown}" in
-            debian|ubuntu|raspbian)
-                OS="debian"
-                PKG_MANAGER="apt"
-                SERVICE_MANAGER="systemd"
-                ;;
-            arch|manjaro)
-                OS="arch"
-                PKG_MANAGER="pacman"
-                SERVICE_MANAGER="systemd"
-                ;;
-            fedora|centos|rhel|rocky|almalinux)
-                OS="rhel"
-                PKG_MANAGER="yum"
-                [ -x /usr/bin/dnf ] && PKG_MANAGER="dnf"
-                SERVICE_MANAGER="systemd"
-                ;;
-            alpine)
-                OS="alpine"
-                PKG_MANAGER="apk"
-                SERVICE_MANAGER="openrc"
-                ;;
-            *)
-                OS="linux"
-                PKG_MANAGER="unknown"
-                SERVICE_MANAGER="systemd"
-                ;;
+prompt_yes_no() {
+    local prompt="$1"
+    local response
+    while true; do
+        read -p "$prompt [y/n]: " response </dev/tty
+        case $response in
+            [Yy]* ) return 0;;
+            [Nn]* ) return 1;;
+            * ) echo "Please answer yes (y) or no (n).";;
         esac
-    else
-        OS="linux"
-        PKG_MANAGER="unknown"
-        SERVICE_MANAGER="systemd"
-    fi
-    
-    print_done
-    print_info "OS: $OS | Package Manager: $PKG_MANAGER | Service: $SERVICE_MANAGER"
+    done
 }
 
-# ============================================================================
-# ROOT CHECK
-# ============================================================================
 check_root() {
-    if [ "$EUID" -ne 0 ]; then
-        print_error "This installer must be run as root"
-        echo "Please run: sudo bash $0"
+    if [[ $EUID -ne 0 ]]; then
+        error "This script must be run as root"
         exit 1
     fi
 }
 
-# ============================================================================
-# NUCLEAR CLEANUP - REMOVES EVERYTHING, NEVER FAILS
-# ============================================================================
-nuclear_cleanup() {
-    IS_CLEANING=true  # Disable logging during cleanup
-    
-    print_section "COMPLETE REMOVAL - Destroying Everything"
-    
-    # Kill Node.js processes
-    print_progress "Terminating all Node.js processes"
-    killall node 2>/dev/null || true
-    killall nodejs 2>/dev/null || true
-    killall npm 2>/dev/null || true
-    print_done
-    
-    # Remove systemd services - ULTRA NUCLEAR MODE
-    if [ "$SERVICE_MANAGER" = "systemd" ]; then
-        print_progress "Destroying all systemd services"
-        
-        local services=(
-            "statistics-server" "statistics-client"
-            "vaultscope-server" "vaultscope-client"
-            "vaultscope-statistics-server" "vaultscope-statistics-client"
-        )
-        
-        # Stop and disable everything - INCLUDING OLD NAMES
-        for service in "${services[@]}"; do
-            systemctl stop "$service" 2>/dev/null || true
-            systemctl stop "${service}.service" 2>/dev/null || true
-            systemctl disable "$service" 2>/dev/null || true
-            systemctl disable "${service}.service" 2>/dev/null || true
-            systemctl mask "$service" 2>/dev/null || true
-        done
-        
-        # FORCE STOP OLD SERVICE NAMES THAT MAY BE CACHED
-        systemctl stop statistics-server.service 2>/dev/null || true
-        systemctl stop statistics-client.service 2>/dev/null || true
-        systemctl disable statistics-server.service 2>/dev/null || true
-        systemctl disable statistics-client.service 2>/dev/null || true
-        systemctl mask statistics-server.service 2>/dev/null || true
-        systemctl mask statistics-client.service 2>/dev/null || true
-        
-        # FORCE reload to flush any cached service definitions
-        systemctl daemon-reload 2>/dev/null || true
-        
-        # Remove ALL service files from ALL possible locations
-        rm -f /etc/systemd/system/statistics*.service 2>/dev/null || true
-        rm -f /etc/systemd/system/vaultscope*.service 2>/dev/null || true
-        rm -f /lib/systemd/system/statistics*.service 2>/dev/null || true
-        rm -f /lib/systemd/system/vaultscope*.service 2>/dev/null || true
-        rm -f /usr/lib/systemd/system/statistics*.service 2>/dev/null || true
-        rm -f /usr/lib/systemd/system/vaultscope*.service 2>/dev/null || true
-        rm -rf /etc/systemd/system/statistics*.service.d 2>/dev/null || true
-        rm -rf /etc/systemd/system/vaultscope*.service.d 2>/dev/null || true
-        rm -rf /run/systemd/system/statistics*.service* 2>/dev/null || true
-        rm -rf /run/systemd/system/vaultscope*.service* 2>/dev/null || true
-        
-        # Remove from multi-user.target.wants
-        rm -f /etc/systemd/system/multi-user.target.wants/statistics*.service 2>/dev/null || true
-        rm -f /etc/systemd/system/multi-user.target.wants/vaultscope*.service 2>/dev/null || true
-        
-        # Clear systemd cache completely
-        systemctl daemon-reload 2>/dev/null || true
-        systemctl reset-failed 2>/dev/null || true
-        
-        # Unmask services to allow recreation
-        for service in "${services[@]}"; do
-            systemctl unmask "$service" 2>/dev/null || true
-        done
-        
-        # UNMASK OLD SERVICE NAMES TOO
-        systemctl unmask statistics-server.service 2>/dev/null || true
-        systemctl unmask statistics-client.service 2>/dev/null || true
-        
-        # Final reload to ensure everything is cleared
-        systemctl daemon-reload 2>/dev/null || true
-        
-        print_done
-    fi
-    
-    # Remove PM2 processes
-    if command -v pm2 &>/dev/null; then
-        print_progress "Removing PM2 processes"
-        pm2 delete all 2>/dev/null || true
-        pm2 kill 2>/dev/null || true
-        print_done
-    fi
-    
-    # Remove web server configs
-    print_progress "Removing web server configurations"
-    
-    # Nginx
-    rm -f /etc/nginx/sites-enabled/vaultscope-api 2>/dev/null || true
-    rm -f /etc/nginx/sites-enabled/vaultscope-client 2>/dev/null || true
-    rm -f /etc/nginx/sites-available/vaultscope-api 2>/dev/null || true
-    rm -f /etc/nginx/sites-available/vaultscope-client 2>/dev/null || true
-    rm -f /etc/nginx/sites-enabled/*statistics* 2>/dev/null || true
-    rm -f /etc/nginx/sites-enabled/*vaultscope* 2>/dev/null || true
-    rm -f /etc/nginx/sites-available/*statistics* 2>/dev/null || true
-    rm -f /etc/nginx/sites-available/*vaultscope* 2>/dev/null || true
-    
-    if systemctl is-active nginx >/dev/null 2>&1; then
-        nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1 || true
-    fi
-    
-    # Apache
-    if [ -d /etc/apache2 ]; then
-        a2dissite *statistics* 2>/dev/null || true
-        a2dissite *vaultscope* 2>/dev/null || true
-        rm -f /etc/apache2/sites-available/*statistics* 2>/dev/null || true
-        rm -f /etc/apache2/sites-available/*vaultscope* 2>/dev/null || true
-        systemctl reload apache2 2>/dev/null || true
-    fi
-    
-    if [ -d /etc/httpd ]; then
-        rm -f /etc/httpd/conf.d/*statistics* 2>/dev/null || true
-        rm -f /etc/httpd/conf.d/*vaultscope* 2>/dev/null || true
-        systemctl reload httpd 2>/dev/null || true
-    fi
-    
-    print_done
-    
-    # Remove directories
-    print_progress "Removing all installation directories"
-    rm -rf "$INSTALL_DIR" 2>/dev/null || true
-    rm -rf /var/www/vaultscope* 2>/dev/null || true
-    rm -rf /var/www/statistics 2>/dev/null || true
-    rm -rf /opt/vaultscope* 2>/dev/null || true
-    rm -rf /opt/statistics 2>/dev/null || true
-    print_done
-    
-    print_progress "Removing configuration directories"
-    rm -rf "$CONFIG_DIR" 2>/dev/null || true
-    rm -rf /etc/vaultscope* 2>/dev/null || true
-    rm -rf /etc/statistics 2>/dev/null || true
-    print_done
-    
-    print_progress "Removing ALL log files and directories"
-    # Save current log for reference if needed
-    local current_log="$LOG_FILE"
-    if [ -n "$current_log" ] && [ -f "$current_log" ]; then
-        cp "$current_log" "/tmp/statistics_last_uninstall.log" 2>/dev/null || true
-    fi
-    
-    # Remove all log directories and files
-    rm -rf "$LOG_DIR" 2>/dev/null || true
-    rm -rf /var/log/vaultscope* 2>/dev/null || true
-    rm -rf /var/log/statistics* 2>/dev/null || true
-    
-    # Remove journald logs
-    journalctl --rotate 2>/dev/null || true
-    journalctl --vacuum-time=1s 2>/dev/null || true
-    
-    # Remove any rotated logs
-    rm -f /var/log/vaultscope*.log* 2>/dev/null || true
-    rm -f /var/log/statistics*.log* 2>/dev/null || true
-    
-    print_done
-    
-    print_progress "Removing backup directories"
-    rm -rf "$BACKUP_DIR" 2>/dev/null || true
-    rm -rf /var/backups/vaultscope* 2>/dev/null || true
-    rm -rf /var/backups/statistics 2>/dev/null || true
-    print_done
-    
-    print_progress "Removing ALL databases and user credentials"
-    # Remove SQLite databases
-    find /var/www -name "*.sqlite" -o -name "*.sqlite3" -o -name "*.db" 2>/dev/null | grep -E "(vaultscope|statistics)" | xargs rm -f 2>/dev/null || true
-    find /opt -name "*.sqlite" -o -name "*.sqlite3" -o -name "*.db" 2>/dev/null | grep -E "(vaultscope|statistics)" | xargs rm -f 2>/dev/null || true
-    find /etc -name "*.sqlite" -o -name "*.sqlite3" -o -name "*.db" 2>/dev/null | grep -E "(vaultscope|statistics)" | xargs rm -f 2>/dev/null || true
-    find /root -name "*.sqlite" -o -name "*.sqlite3" -o -name "*.db" 2>/dev/null | grep -E "(vaultscope|statistics)" | xargs rm -f 2>/dev/null || true
-    find /home -name "*.sqlite" -o -name "*.sqlite3" -o -name "*.db" 2>/dev/null | grep -E "(vaultscope|statistics)" | xargs rm -f 2>/dev/null || true
-    
-    # Remove JSON databases
-    find /var/www -name "database.json" 2>/dev/null | xargs rm -f 2>/dev/null || true
-    find /opt -name "database.json" 2>/dev/null | xargs rm -f 2>/dev/null || true
-    
-    # Remove any admin key files
-    find /var/www -name ".admin-key" -o -name "admin-key.json" 2>/dev/null | xargs rm -f 2>/dev/null || true
-    find /etc -name ".admin-key" -o -name "admin-key.json" 2>/dev/null | xargs rm -f 2>/dev/null || true
-    
-    # Remove environment files
-    find /var/www -name ".env*" 2>/dev/null | grep -E "(vaultscope|statistics)" | xargs rm -f 2>/dev/null || true
-    find /opt -name ".env*" 2>/dev/null | grep -E "(vaultscope|statistics)" | xargs rm -f 2>/dev/null || true
-    find /etc -name ".env*" 2>/dev/null | grep -E "(vaultscope|statistics)" | xargs rm -f 2>/dev/null || true
-    
-    # Remove any session stores
-    rm -rf /var/lib/vaultscope* 2>/dev/null || true
-    rm -rf /var/lib/statistics* 2>/dev/null || true
-    
-    print_done
-    
-    print_progress "Removing CLI tools"
-    rm -f /usr/local/bin/statistics* 2>/dev/null || true
-    rm -f /usr/local/bin/vaultscope* 2>/dev/null || true
-    rm -f /usr/bin/statistics* 2>/dev/null || true
-    rm -f /usr/bin/vaultscope* 2>/dev/null || true
-    print_done
-    
-    print_progress "Cleaning cron jobs"
-    crontab -l 2>/dev/null | grep -v "statistics\|vaultscope" | crontab - 2>/dev/null || true
-    # Also check root crontab
-    sudo crontab -l 2>/dev/null | grep -v "statistics\|vaultscope" | sudo crontab - 2>/dev/null || true
-    print_done
-    
-    print_progress "Removing temporary files and caches"
-    # Remove temp files
-    rm -rf /tmp/*vaultscope* 2>/dev/null || true
-    rm -rf /tmp/*statistics* 2>/dev/null || true
-    rm -rf /var/tmp/*vaultscope* 2>/dev/null || true
-    rm -rf /var/tmp/*statistics* 2>/dev/null || true
-    
-    # Remove npm caches related to the project
-    npm cache clean --force 2>/dev/null || true
-    
-    # Remove PM2 logs and dumps
-    rm -rf ~/.pm2/logs/*vaultscope* 2>/dev/null || true
-    rm -rf ~/.pm2/logs/*statistics* 2>/dev/null || true
-    rm -rf ~/.pm2/dump.pm2 2>/dev/null || true
-    
-    # Remove Node.js build artifacts
-    rm -rf /root/.node-gyp 2>/dev/null || true
-    rm -rf /root/.npm/_cacache 2>/dev/null || true
-    
-    print_done
-    
-    print_progress "Removing logrotate configurations"
-    rm -f /etc/logrotate.d/*vaultscope* 2>/dev/null || true
-    rm -f /etc/logrotate.d/*statistics* 2>/dev/null || true
-    print_done
-    
-    print_progress "Cleaning up user home directories"
-    # Remove any project files from user homes
-    for user_home in /home/*; do
-        if [ -d "$user_home" ]; then
-            rm -rf "$user_home"/*vaultscope* 2>/dev/null || true
-            rm -rf "$user_home"/*statistics* 2>/dev/null || true
-            rm -rf "$user_home"/.vaultscope* 2>/dev/null || true
-            rm -rf "$user_home"/.statistics* 2>/dev/null || true
+detect_os() {
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        if grep -q Microsoft /proc/version; then
+            OS="WSL"
+        else
+            OS="Linux"
         fi
-    done
-    
-    # Clean root home too
-    rm -rf /root/*vaultscope* 2>/dev/null || true
-    rm -rf /root/*statistics* 2>/dev/null || true
-    rm -rf /root/.vaultscope* 2>/dev/null || true
-    rm -rf /root/.statistics* 2>/dev/null || true
-    print_done
-    
-    print_progress "Final cleanup verification"
-    # Double-check critical locations
-    rm -rf /var/www/vaultscope* 2>/dev/null || true
-    rm -rf /var/www/statistics* 2>/dev/null || true
-    rm -rf /opt/vaultscope* 2>/dev/null || true
-    rm -rf /opt/statistics* 2>/dev/null || true
-    
-    # Clear bash history of any sensitive commands
-    history -c 2>/dev/null || true
-    echo "" > ~/.bash_history 2>/dev/null || true
-    print_done
-    
-    IS_CLEANING=false  # Re-enable logging
-    
-    print_success "Complete removal finished successfully!"
-    print_info "All VaultScope Statistics data, logs, databases, and credentials have been removed."
-    
-    # Verify uninstallation
-    print_section "Verifying Complete Removal"
-    local remaining_items=0
-    local verification_failed=false
-    
-    # Check for any remaining directories
-    for dir in /var/www/vaultscope* /var/www/statistics* /opt/vaultscope* /opt/statistics* /etc/vaultscope* /etc/statistics* /var/log/vaultscope* /var/log/statistics*; do
-        if [ -e "$dir" ]; then
-            print_error "Still exists: $dir"
-            remaining_items=$((remaining_items + 1))
-            verification_failed=true
-        fi
-    done
-    
-    # Check for any remaining databases
-    if find /var/www /opt /etc /root -name "*.sqlite" -o -name "*.db" -o -name "database.json" 2>/dev/null | grep -E "(vaultscope|statistics)" > /dev/null; then
-        print_error "Database files still exist"
-        remaining_items=$((remaining_items + 1))
-        verification_failed=true
-    fi
-    
-    # Check for any remaining service files
-    if ls /etc/systemd/system/*vaultscope* /etc/systemd/system/*statistics* 2>/dev/null | grep -q .; then
-        print_error "Service files still exist"
-        remaining_items=$((remaining_items + 1))
-        verification_failed=true
-    fi
-    
-    # Check for any remaining logs
-    if ls /var/log/vaultscope* /var/log/statistics* 2>/dev/null | grep -q .; then
-        print_error "Log files still exist"
-        remaining_items=$((remaining_items + 1))
-        verification_failed=true
-    fi
-    
-    # Check for any remaining environment files
-    if find /var/www /opt /etc -name ".env*" 2>/dev/null | grep -E "(vaultscope|statistics)" > /dev/null; then
-        print_error "Environment files still exist"
-        remaining_items=$((remaining_items + 1))
-        verification_failed=true
-    fi
-    
-    if [ "$verification_failed" = true ]; then
-        print_warning "Found $remaining_items remaining items. Running additional cleanup..."
-        
-        # Force remove with elevated permissions
-        find / -type d -name "*vaultscope*" -o -name "*statistics*" 2>/dev/null | grep -E "(/var/|/opt/|/etc/)" | xargs rm -rf 2>/dev/null || true
-        find / -type f -name "*vaultscope*" -o -name "*statistics*" 2>/dev/null | grep -E "(/var/|/opt/|/etc/)" | xargs rm -f 2>/dev/null || true
-        
-        print_success "Additional cleanup completed"
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        OS="macOS"
     else
-        print_success "Verification passed - all components removed successfully!"
+        error "Unsupported operating system: $OSTYPE"
+        exit 1
     fi
+    log "Detected OS: $OS"
 }
 
-# ============================================================================
-# CHECK EXISTING INSTALLATION
-# ============================================================================
 check_existing_installation() {
-    print_section "Checking for Existing Installation"
+    local existing=false
     
-    local found=false
-    local found_items=""
-    
-    # Check for directories
-    [ -d "$INSTALL_DIR" ] && { found=true; found_items="${found_items}• Installation directory: $INSTALL_DIR\n"; }
-    [ -d "$CONFIG_DIR" ] && { found=true; found_items="${found_items}• Config directory: $CONFIG_DIR\n"; }
-    [ -d "$LOG_DIR" ] && { found=true; found_items="${found_items}• Log directory: $LOG_DIR\n"; }
-    [ -f /usr/local/bin/statistics ] && { found=true; found_items="${found_items}• CLI tool: statistics\n"; }
-    
-    # Check for databases
-    [ -f "$INSTALL_DIR/database.sqlite" ] && { found=true; found_items="${found_items}• Database file: $INSTALL_DIR/database.sqlite\n"; }
-    [ -f "$INSTALL_DIR/database.json" ] && { found=true; found_items="${found_items}• Database file: $INSTALL_DIR/database.json\n"; }
-    
-    # Check for environment files
-    [ -f "$INSTALL_DIR/.env" ] && { found=true; found_items="${found_items}• Environment file: $INSTALL_DIR/.env\n"; }
-    [ -f "/etc/vaultscope-statistics/env" ] && { found=true; found_items="${found_items}• Environment config: /etc/vaultscope-statistics/env\n"; }
-    
-    # Check for logs (only check for directories, not individual log files)
-    [ -d "/var/log/vaultscope-statistics" ] && { found=true; found_items="${found_items}• Log directory: /var/log/vaultscope-statistics\n"; }
-    [ -d "/var/log/statistics" ] && { found=true; found_items="${found_items}• Log directory: /var/log/statistics\n"; }
-    
-    # Check for services
-    if [ "$SERVICE_MANAGER" = "systemd" ]; then
-        systemctl list-units --all | grep -q "statistics\|vaultscope" 2>/dev/null && {
-            found=true
-            found_items="${found_items}• System services detected\n"
-        }
+    if [[ -f "$CONFIG_FILE" ]]; then
+        existing=true
+        info "Found existing VaultScope Statistics installation"
+        
+        if [[ -f "$CONFIG_FILE" ]]; then
+            EXISTING_TYPE=$(grep -o '"install_type":"[^"]*' "$CONFIG_FILE" | cut -d'"' -f4)
+            EXISTING_VERSION=$(grep -o '"version":"[^"]*' "$CONFIG_FILE" | cut -d'"' -f4)
+            info "Current installation: Type=$EXISTING_TYPE, Version=$EXISTING_VERSION"
+        fi
     fi
     
-    if [ "$found" = true ]; then
-        print_warning "Existing installation detected:"
+    if [[ -d "$INSTALL_DIR_SERVER" ]] || [[ -d "$INSTALL_DIR_CLIENT" ]] || [[ -d "$INSTALL_DIR_FULL" ]]; then
+        existing=true
+    fi
+    
+    if $existing; then
         echo ""
-        echo -e "$found_items"
-        echo ""
-        echo "What would you like to do?"
-        echo "  1) COMPLETELY UNINSTALL and exit"
-        echo "  2) Remove everything and install fresh [Recommended]"
-        echo "  3) Cancel"
-        echo ""
-        read -p "Enter your choice [1-3]: " choice
+        echo "Existing installation detected. What would you like to do?"
+        echo "1) Update existing installation"
+        echo "2) Uninstall and remove"
+        echo "3) Cancel"
         
-        case $choice in
-            1)
-                nuclear_cleanup
-                echo ""
-                print_success "Uninstallation complete!"
-                exit 0
-                ;;
-            2)
-                nuclear_cleanup
-                echo ""
-                print_info "Proceeding with fresh installation..."
-                sleep 2
-                ;;
-            3)
-                print_info "Installation cancelled"
-                exit 0
-                ;;
-            *)
-                print_error "Invalid choice"
-                exit 1
-                ;;
-        esac
-    else
-        print_success "No existing installation found"
+        while true; do
+            read -p "Select option [1-3]: " choice </dev/tty
+            case $choice in
+                1)
+                    perform_update
+                    exit 0
+                    ;;
+                2)
+                    perform_uninstall
+                    exit 0
+                    ;;
+                3)
+                    info "Installation cancelled"
+                    exit 0
+                    ;;
+                *)
+                    echo "Invalid option. Please select 1, 2, or 3."
+                    ;;
+            esac
+        done
     fi
 }
 
-# ============================================================================
-# INSTALL DEPENDENCIES
-# ============================================================================
-install_dependencies() {
-    print_section "Installing System Dependencies"
+perform_update() {
+    log "Starting update process..."
     
-    # Update package manager
-    print_progress "Updating package manager"
-    case $PKG_MANAGER in
-        apt)
-            apt-get update -qq >/dev/null 2>&1 || true
+    if [[ -f "$CONFIG_FILE" ]]; then
+        INSTALL_TYPE=$(grep -o '"install_type":"[^"]*' "$CONFIG_FILE" | cut -d'"' -f4)
+        BRANCH=$(grep -o '"branch":"[^"]*' "$CONFIG_FILE" | cut -d'"' -f4 || echo "main")
+    fi
+    
+    case $INSTALL_TYPE in
+        "full")
+            cd "$INSTALL_DIR_FULL"
             ;;
-        yum|dnf)
-            $PKG_MANAGER makecache -q >/dev/null 2>&1 || true
+        "server")
+            cd "$INSTALL_DIR_SERVER"
             ;;
-        pacman)
-            pacman -Sy --noconfirm >/dev/null 2>&1 || true
+        "client")
+            cd "$INSTALL_DIR_CLIENT"
             ;;
     esac
-    print_done
     
-    # Install required packages
-    local packages="curl wget git"
+    log "Pulling latest changes from $BRANCH branch..."
+    git fetch origin
+    git checkout "$BRANCH"
+    git pull origin "$BRANCH"
     
-    if [ "$OS" != "macos" ]; then
-        packages="$packages build-essential"
-        [ "$PKG_MANAGER" = "yum" ] || [ "$PKG_MANAGER" = "dnf" ] && packages="curl wget git gcc gcc-c++ make"
-        [ "$PKG_MANAGER" = "pacman" ] && packages="curl wget git base-devel"
-        [ "$PKG_MANAGER" = "apk" ] && packages="curl wget git build-base"
-    fi
+    log "Installing dependencies..."
+    npm install
     
-    for pkg in $packages; do
-        print_progress "Installing $pkg"
-        case $PKG_MANAGER in
-            apt)
-                DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$pkg" >/dev/null 2>&1 || true
-                ;;
-            yum|dnf)
-                $PKG_MANAGER install -y -q "$pkg" >/dev/null 2>&1 || true
-                ;;
-            pacman)
-                pacman -S --noconfirm --needed "$pkg" >/dev/null 2>&1 || true
-                ;;
-            apk)
-                apk add --no-cache "$pkg" >/dev/null 2>&1 || true
-                ;;
-            brew)
-                brew install "$pkg" >/dev/null 2>&1 || true
-                ;;
-        esac
-        print_done
-    done
-}
-
-# ============================================================================
-# INSTALL NODE.JS
-# ============================================================================
-install_nodejs() {
-    print_section "Installing Node.js"
-    
-    if command -v node >/dev/null 2>&1; then
-        local current_version=$(node -v 2>/dev/null | cut -d'v' -f2 | cut -d'.' -f1)
-        if [ "$current_version" -ge "$NODE_VERSION" ] 2>/dev/null; then
-            print_success "Node.js v$current_version already installed"
-            return 0
-        fi
-    fi
-    
-    print_progress "Installing Node.js v${NODE_VERSION}"
-    
-    if [ "$OS" = "macos" ]; then
-        if command -v brew >/dev/null 2>&1; then
-            brew install node@${NODE_VERSION} >/dev/null 2>&1 || brew install node >/dev/null 2>&1 || true
-        fi
-    else
-        # Use NodeSource repository
-        curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - >/dev/null 2>&1 || true
-        
-        case $PKG_MANAGER in
-            apt)
-                DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nodejs >/dev/null 2>&1 || true
-                ;;
-            yum|dnf)
-                $PKG_MANAGER install -y -q nodejs >/dev/null 2>&1 || true
-                ;;
-            *)
-                # Fallback: download and extract binary
-                local node_arch="x64"
-                [ "$(uname -m)" = "arm64" ] || [ "$(uname -m)" = "aarch64" ] && node_arch="arm64"
-                
-                wget -q "https://nodejs.org/dist/v${NODE_VERSION}.0.0/node-v${NODE_VERSION}.0.0-linux-${node_arch}.tar.xz" -O /tmp/node.tar.xz
-                tar -xf /tmp/node.tar.xz -C /usr/local --strip-components=1 2>/dev/null || true
-                rm -f /tmp/node.tar.xz
-                ;;
-        esac
-    fi
-    
-    print_done
-    
-    # Verify installation
-    if command -v node >/dev/null 2>&1; then
-        print_success "Node.js $(node -v) installed successfully"
-    else
-        print_warning "Node.js installation may have failed, continuing anyway"
-    fi
-}
-
-# ============================================================================
-# CLONE AND BUILD APPLICATION
-# ============================================================================
-install_application() {
-    print_section "Installing VaultScope Statistics"
-    
-    # Create installation directory
-    print_progress "Creating installation directory"
-    mkdir -p "$INSTALL_DIR"
-    cd "$INSTALL_DIR"
-    print_done
-    
-    # Clone repository
-    print_progress "Cloning repository"
-    if [ -d ".git" ]; then
-        git pull origin main >/dev/null 2>&1 || true
-    else
-        # Try primary URL first, then fallback
-        git clone "$REPO_URL" . >/dev/null 2>&1 || \
-        git clone "https://github.com/cptcr/statistics.git" . >/dev/null 2>&1 || \
-        git clone "https://github.com/vaultscope/vaultscope-statistics.git" . >/dev/null 2>&1 || {
-            print_warning "Could not clone repository, creating minimal setup"
-            create_minimal_setup
+    if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "server" ]]; then
+        log "Building server..."
+        npm run build:server || {
+            warning "Server build had TypeScript errors but continuing..."
         }
     fi
-    print_done
     
-    # Install dependencies
-    if [ -f "package.json" ]; then
-        print_progress "Installing Node.js dependencies"
-        npm install --silent >/dev/null 2>&1 || npm install >/dev/null 2>&1 || true
-        print_done
+    if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "client" ]]; then
+        log "Building client..."
+        npm run build:client || {
+            warning "Client build had errors but continuing..."
+        }
+    fi
+    
+    restart_services
+    
+    success "Update completed successfully!"
+}
+
+perform_uninstall() {
+    warning "This will completely remove VaultScope Statistics from your system."
+    if ! prompt_yes_no "Are you sure you want to continue?"; then
+        info "Uninstall cancelled"
+        return
+    fi
+    
+    log "Stopping services..."
+    systemctl stop vss-server 2>/dev/null || true
+    systemctl stop vss-client 2>/dev/null || true
+    systemctl disable vss-server 2>/dev/null || true
+    systemctl disable vss-client 2>/dev/null || true
+    
+    log "Removing service files..."
+    rm -f /etc/systemd/system/vss-server.service
+    rm -f /etc/systemd/system/vss-client.service
+    systemctl daemon-reload
+    
+    log "Removing VSS CLI tool..."
+    rm -f /usr/local/bin/vss
+    
+    log "Removing application directories..."
+    rm -rf "$INSTALL_DIR_SERVER"
+    rm -rf "$INSTALL_DIR_CLIENT"
+    rm -rf "$INSTALL_DIR_FULL"
+    
+    log "Removing configuration..."
+    rm -rf "$CONFIG_DIR"
+    
+    if prompt_yes_no "Remove Nginx configuration?"; then
+        rm -f /etc/nginx/sites-enabled/vss-server
+        rm -f /etc/nginx/sites-enabled/vss-client
+        rm -f /etc/nginx/sites-available/vss-server
+        rm -f /etc/nginx/sites-available/vss-client
+        systemctl reload nginx 2>/dev/null || true
+    fi
+    
+    success "VaultScope Statistics has been uninstalled successfully!"
+}
+
+install_dependencies() {
+    log "Installing system dependencies..."
+    
+    if [[ "$OS" == "Linux" ]] || [[ "$OS" == "WSL" ]]; then
+        apt-get update
+        apt-get install -y curl git build-essential python3 gcc g++ make
         
-        # Ensure JSON database files exist
-        print_progress "Setting up databases"
-        # The project already has database.json files, just ensure they exist
-        [ ! -f "database.json" ] && echo '{}' > database.json
-        [ -d "client" ] && [ ! -f "client/database.json" ] && echo '{}' > client/database.json
-        print_done
+        if ! command -v node &> /dev/null; then
+            log "Installing Node.js v$NODE_VERSION..."
+            curl -fsSL https://deb.nodesource.com/setup_$NODE_VERSION.x | bash -
+            apt-get install -y nodejs
+        fi
         
-        # Build TypeScript if needed
-        if [ -f "tsconfig.json" ]; then
-            print_progress "Building TypeScript server"
-            npx tsc >/dev/null 2>&1 || npm run build >/dev/null 2>&1 || true
-            print_done
+        if $USE_NGINX; then
+            apt-get install -y nginx certbot python3-certbot-nginx
+        fi
+        
+    elif [[ "$OS" == "macOS" ]]; then
+        if ! command -v brew &> /dev/null; then
+            error "Homebrew is required. Please install it from https://brew.sh"
+            exit 1
+        fi
+        
+        brew update
+        
+        if ! command -v node &> /dev/null; then
+            log "Installing Node.js..."
+            brew install node@$NODE_VERSION
+        fi
+        
+        if $USE_NGINX; then
+            brew install nginx certbot
         fi
     fi
     
-    # Build client if exists
-    if [ -d "client" ] && [ -f "client/package.json" ]; then
-        print_progress "Installing client dependencies"
-        cd client
-        # Ensure client has its own node_modules
-        npm install --silent >/dev/null 2>&1 || npm install >/dev/null 2>&1 || true
-        print_done
-        
-        print_progress "Building client application"
-        # Build Next.js app - this creates .next directory
-        npm run build >/dev/null 2>&1 || npx next build >/dev/null 2>&1 || true
+    npm install -g npm@latest
+    npm install -g pm2
+}
+
+select_installation_type() {
+    echo ""
+    echo "Select installation type:"
+    echo "1) Full installation (Server + Client)"
+    echo "2) Server only"
+    echo "3) Client only"
+    
+    while true; do
+        read -p "Select option [1-3]: " choice </dev/tty
+        case $choice in
+            1)
+                INSTALL_TYPE="full"
+                break
+                ;;
+            2)
+                INSTALL_TYPE="server"
+                break
+                ;;
+            3)
+                INSTALL_TYPE="client"
+                break
+                ;;
+            *)
+                echo "Invalid option. Please select 1, 2, or 3."
+                ;;
+        esac
+    done
+    
+    log "Installation type selected: $INSTALL_TYPE"
+}
+
+select_branch() {
+    echo ""
+    echo "Select branch to install from:"
+    echo "1) main (recommended - stable)"
+    echo "2) dev (experimental - latest features)"
+    
+    while true; do
+        read -p "Select option [1-2]: " choice </dev/tty
+        case $choice in
+            1)
+                BRANCH="main"
+                break
+                ;;
+            2)
+                BRANCH="dev"
+                break
+                ;;
+            *)
+                echo "Invalid option. Please select 1 or 2."
+                ;;
+        esac
+    done
+    
+    log "Selected branch: $BRANCH"
+}
+
+clone_repository() {
+    local target_dir="$1"
+    
+    log "Cloning repository from branch $BRANCH..."
+    
+    if [[ -d "$target_dir" ]]; then
+        warning "Directory $target_dir already exists. Removing..."
+        rm -rf "$target_dir"
+    fi
+    
+    git clone -b "$BRANCH" "$REPO_URL" "$target_dir"
+    cd "$target_dir"
+    
+    log "Repository cloned successfully"
+}
+
+setup_application() {
+    log "Setting up application..."
+    
+    case $INSTALL_TYPE in
+        "full")
+            TARGET_DIR="$INSTALL_DIR_FULL"
+            ;;
+        "server")
+            TARGET_DIR="$INSTALL_DIR_SERVER"
+            ;;
+        "client")
+            TARGET_DIR="$INSTALL_DIR_CLIENT"
+            ;;
+    esac
+    
+    clone_repository "$TARGET_DIR"
+    cd "$TARGET_DIR"
+    
+    log "Installing root dependencies..."
+    npm install
+    
+    if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "server" ]]; then
+        log "Installing server dependencies..."
+        cd server
+        npm install || {
+            warning "Some server dependencies may be missing, continuing..."
+        }
         cd ..
-        print_done
     fi
     
-    # Set permissions
-    print_progress "Setting permissions"
-    chown -R www-data:www-data "$INSTALL_DIR" 2>/dev/null || \
-    chown -R nobody:nobody "$INSTALL_DIR" 2>/dev/null || \
-    chown -R daemon:daemon "$INSTALL_DIR" 2>/dev/null || true
-    chmod -R 755 "$INSTALL_DIR" 2>/dev/null || true
-    print_done
-}
-
-# ============================================================================
-# CREATE MINIMAL SETUP (FALLBACK)
-# ============================================================================
-create_minimal_setup() {
-    print_warning "Repository files not found, creating minimal health check"
-    print_info "Clone the full repository for complete functionality"
-    
-    # Create a simple health check server
-    cat > server.js << 'EOF'
-const http = require('http');
-const server = http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ 
-    status: 'minimal', 
-    message: 'VaultScope Statistics - Minimal installation. Clone repository for full features.' 
-  }));
-});
-const PORT = process.env.PORT || 4000;
-server.listen(PORT, () => console.log(`Minimal server running on port ${PORT}`));
-EOF
-}
-
-# ============================================================================
-# SETUP SYSTEMD SERVICES
-# ============================================================================
-setup_services() {
-    if [ "$SERVICE_MANAGER" != "systemd" ]; then
-        print_warning "Systemd not available, skipping service creation"
-        return 0
+    if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "client" ]]; then
+        log "Installing client dependencies..."
+        cd client
+        npm install || {
+            warning "Some client dependencies may be missing, continuing..."
+        }
+        cd ..
     fi
     
-    print_section "Creating System Services"
+    if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "server" ]]; then
+        log "Building server..."
+        npm run build:server || {
+            warning "Server build had TypeScript errors but continuing..."
+        }
+        
+        log "Initializing server database..."
+        # Database is created automatically on first run
+        # Just ensure the database file has correct permissions
+        cd server
+        # Run the server briefly to create database
+        timeout 5s npx ts-node index.ts 2>/dev/null || true
+        if [[ -f "database.db" ]]; then
+            chown www-data:www-data database.db* 2>/dev/null || true
+            success "Server database initialized"
+        fi
+        cd ..
+        
+        log "Generating admin API key..."
+        cd "$TARGET_DIR/server"
+        API_KEY_OUTPUT=$(npm run apikey create "Admin Key" -- --admin --viewStats --createApiKey --deleteApiKey --viewApiKeys --usePowerCommands 2>&1 || true)
+        API_KEY=$(echo "$API_KEY_OUTPUT" | grep -oP 'API Key: \K[a-f0-9]{64}' || echo "")
+        if [[ -n "$API_KEY" ]]; then
+            success "Admin API key generated successfully"
+        else
+            warning "Could not generate API key automatically. You can create one later with: vss apikey create"
+        fi
+        cd "$TARGET_DIR"
+    fi
     
-    # Ensure log directory exists before creating services
-    print_progress "Creating log directories"
-    mkdir -p "$LOG_DIR" 2>/dev/null || true
-    chmod 755 "$LOG_DIR" 2>/dev/null || true
-    print_done
-    
-    local node_path=$(which node 2>/dev/null || echo "/usr/bin/node")
-    
-    # Build the server for production first
-    print_progress "Building server for production"
-    cd "$INSTALL_DIR"
-    npm run build 2>&1 | tee -a "$LOG_FILE" || {
-        print_warning "Failed to build server, will use development mode"
+    if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "client" ]]; then
+        log "Building client..."
+        npm run build:client || {
+            warning "Client build had errors but continuing..."
+        }
+        
+        log "Initializing client database..."
+        # Client database (JSON) is created automatically on first API access
+        # Pre-create it to ensure correct permissions
+        cd client
+        cat > database.json << 'EODB'
+{
+  "users": [],
+  "nodes": [],
+  "categories": [
+    {"id": 1, "name": "Production", "color": "#22c55e", "icon": "server", "createdAt": "2024-01-01T00:00:00Z"},
+    {"id": 2, "name": "Development", "color": "#3b82f6", "icon": "code", "createdAt": "2024-01-01T00:00:00Z"},
+    {"id": 3, "name": "Testing", "color": "#f59e0b", "icon": "flask", "createdAt": "2024-01-01T00:00:00Z"},
+    {"id": 4, "name": "Backup", "color": "#8b5cf6", "icon": "database", "createdAt": "2024-01-01T00:00:00Z"},
+    {"id": 5, "name": "Monitoring", "color": "#ef4444", "icon": "activity", "createdAt": "2024-01-01T00:00:00Z"}
+  ],
+  "roles": [
+    {
+      "id": "admin",
+      "name": "Administrator",
+      "description": "Full system access",
+      "permissions": ["nodes.view", "nodes.create", "nodes.edit", "nodes.delete", "users.view", "users.create", "users.edit", "users.delete", "system.settings"],
+      "isSystem": true,
+      "createdAt": "2024-01-01T00:00:00Z",
+      "updatedAt": "2024-01-01T00:00:00Z"
+    },
+    {
+      "id": "viewer",
+      "name": "Viewer",
+      "description": "Read-only access",
+      "permissions": ["nodes.view", "users.view"],
+      "isSystem": true,
+      "createdAt": "2024-01-01T00:00:00Z",
+      "updatedAt": "2024-01-01T00:00:00Z"
     }
+  ]
+}
+EODB
+        chown www-data:www-data database.json 2>/dev/null || true
+        success "Client database initialized"
+        cd ..
+    fi
+}
+
+create_systemd_services() {
+    log "Creating systemd services..."
     
-    # Determine server start command
-    local server_cmd="$node_path $INSTALL_DIR/dist/server/index.js"
-    [ ! -f "$INSTALL_DIR/dist/server/index.js" ] && server_cmd="$node_path $INSTALL_DIR/server/index.js"
-    
-    # Create server service
-    print_progress "Creating server service"
-    cat > /etc/systemd/system/vaultscope-statistics-server.service << EOF
+    if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "server" ]]; then
+        cat > /etc/systemd/system/vss-server.service << EOF
 [Unit]
 Description=VaultScope Statistics Server
 After=network.target
 
 [Service]
 Type=simple
-User=root
-WorkingDirectory=$INSTALL_DIR
+User=www-data
+WorkingDirectory=$TARGET_DIR
 Environment="NODE_ENV=production"
 Environment="PORT=4000"
-Environment="JWT_SECRET=$(openssl rand -base64 32 2>/dev/null || echo 'change-this-secret-in-production')"
-ExecStart=$server_cmd
-Restart=always
+ExecStart=/usr/bin/node dist/server/index.js
+Restart=on-failure
 RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
 EOF
-    print_done
+        
+        systemctl daemon-reload
+        systemctl enable vss-server
+        systemctl start vss-server
+        log "Server service created and started"
+    fi
     
-    # Create client service if Next.js exists
-    if [ -d "$INSTALL_DIR/client" ] && [ -f "$INSTALL_DIR/client/package.json" ]; then
-        print_progress "Building Next.js client for production"
-        cd "$INSTALL_DIR/client"
-        npm run build 2>&1 | tee -a "$LOG_FILE" || {
-            print_warning "Failed to build client, continuing anyway"
-        }
-        
-        print_progress "Creating client service"
-        
-        # Use next start for production
-        local next_cmd="cd $INSTALL_DIR/client && npx next start -p 4001"
-        
-        cat > /etc/systemd/system/vaultscope-statistics-client.service << EOF
+    if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "client" ]]; then
+        cat > /etc/systemd/system/vss-client.service << EOF
 [Unit]
 Description=VaultScope Statistics Client
 After=network.target
 
 [Service]
 Type=simple
-User=root
-WorkingDirectory=$INSTALL_DIR/client
+User=www-data
+WorkingDirectory=$TARGET_DIR/client
 Environment="NODE_ENV=production"
 Environment="PORT=4001"
-Environment="JWT_SECRET=$(openssl rand -base64 32 2>/dev/null || echo 'change-this-secret-in-production')"
-ExecStart=/bin/bash -c "$next_cmd"
-Restart=always
+ExecStart=/usr/bin/npm run start
+Restart=on-failure
 RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
 EOF
-        print_done
-    fi
-    
-    # Reload and start services
-    print_progress "Starting services"
-    systemctl daemon-reload
-    systemctl enable vaultscope-statistics-server >/dev/null 2>&1 || true
-    systemctl start vaultscope-statistics-server >/dev/null 2>&1 || true
-    
-    if [ -f /etc/systemd/system/vaultscope-statistics-client.service ]; then
-        systemctl enable vaultscope-statistics-client >/dev/null 2>&1 || true
-        systemctl start vaultscope-statistics-client >/dev/null 2>&1 || true
-    fi
-    print_done
-    
-    # Check status
-    sleep 2
-    if systemctl is-active vaultscope-statistics-server >/dev/null 2>&1; then
-        print_success "Server service running successfully"
-    else
-        print_warning "Server service may not be running properly"
+        
+        systemctl daemon-reload
+        systemctl enable vss-client
+        systemctl start vss-client
+        log "Client service created and started"
     fi
 }
 
-# ============================================================================
-# CONFIGURE REVERSE PROXY
-# ============================================================================
-configure_reverse_proxy() {
-    print_section "Reverse Proxy Configuration"
+setup_nginx() {
+    if ! $USE_NGINX; then
+        return
+    fi
     
-    echo "Do you want to configure Nginx reverse proxy? (y/n)"
-    read -p "Choice: " proxy_choice
+    log "Setting up Nginx reverse proxy..."
     
-    if [[ "$proxy_choice" == "y" || "$proxy_choice" == "Y" ]]; then
-        safe_log "Configuring Nginx reverse proxy"
-        
-        # Install nginx if not present
-        if ! command -v nginx &> /dev/null; then
-            print_progress "Installing Nginx"
-            case $PKG_MANAGER in
-                apt)
-                    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nginx >/dev/null 2>&1 || true
-                    ;;
-                yum|dnf)
-                    $PKG_MANAGER install -y -q nginx >/dev/null 2>&1 || true
-                    ;;
-                pacman)
-                    pacman -S --noconfirm nginx >/dev/null 2>&1 || true
-                    ;;
-                brew)
-                    brew install nginx >/dev/null 2>&1 || true
-                    ;;
-            esac
-            print_done
-        fi
-        
-        echo "Enter your API domain (e.g., api.example.com):"
-        read -p "API Domain: " api_domain
-        
-        echo "Enter your client domain (e.g., app.example.com):"
-        read -p "Client Domain: " client_domain
-        
-        # Create nginx configuration for API
-        print_progress "Creating API proxy configuration"
-        cat > /etc/nginx/sites-available/vaultscope-api << 'NGINX_EOF'
+    local server_ip=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -n1)
+    
+    if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "server" ]]; then
+        cat > /etc/nginx/sites-available/vss-server << EOF
 server {
     listen 80;
-    listen [::]:80;
-    server_name API_DOMAIN_PLACEHOLDER;
+    server_name $SERVER_DOMAIN;
     
     location / {
-        proxy_pass http://127.0.0.1:4000;
+        proxy_pass http://localhost:4000;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 86400;
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
     }
 }
-NGINX_EOF
-        # Replace placeholder with actual domain
-        sed -i "s/API_DOMAIN_PLACEHOLDER/$api_domain/g" /etc/nginx/sites-available/vaultscope-api
-        print_done
-        
-        # Create nginx configuration for Client
-        print_progress "Creating Client proxy configuration"
-        cat > /etc/nginx/sites-available/vaultscope-client << 'NGINX_EOF'
-server {
-    listen 80;
-    listen [::]:80;
-    server_name CLIENT_DOMAIN_PLACEHOLDER;
-    
-    location / {
-        proxy_pass http://127.0.0.1:4001;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 86400;
-    }
-}
-NGINX_EOF
-        # Replace placeholder with actual domain
-        sed -i "s/CLIENT_DOMAIN_PLACEHOLDER/$client_domain/g" /etc/nginx/sites-available/vaultscope-client
-        print_done
-        
-        # Enable sites
-        print_progress "Enabling proxy sites"
-        ln -sf /etc/nginx/sites-available/vaultscope-api /etc/nginx/sites-enabled/ 2>/dev/null || true
-        ln -sf /etc/nginx/sites-available/vaultscope-client /etc/nginx/sites-enabled/ 2>/dev/null || true
-        print_done
-        
-        # Test nginx configuration
-        print_progress "Testing Nginx configuration"
-        if nginx -t 2>/dev/null; then
-            print_done
-            
-            # Reload nginx
-            print_progress "Reloading Nginx"
-            systemctl reload nginx || systemctl restart nginx || true
-            print_done
-            
-            # Verify sites are enabled
-            print_progress "Verifying nginx sites"
-            if [ -L /etc/nginx/sites-enabled/vaultscope-api ] && [ -L /etc/nginx/sites-enabled/vaultscope-client ]; then
-                print_done
-                print_success "Nginx sites enabled successfully"
-            else
-                print_warning "Nginx sites may not be properly enabled"
-            fi
-            
-            # Show actual configuration
-            print_info "Nginx configuration created:"
-            echo "  • /etc/nginx/sites-available/vaultscope-api"
-            echo "  • /etc/nginx/sites-available/vaultscope-client"
-            echo ""
-            print_info "To check nginx configuration:"
-            echo "  nginx -t"
-            echo "  cat /etc/nginx/sites-enabled/vaultscope-api"
-            echo "  cat /etc/nginx/sites-enabled/vaultscope-client"
-        else
-            print_warning "Nginx configuration test failed, checking..."
-            nginx -t
-            print_error "Please fix nginx errors and re-run the installer"
-        fi
-        
-        print_success "Reverse proxy configured for:"
-        echo "  API: http://$api_domain -> http://localhost:4000"
-        echo "  Client: http://$client_domain -> http://localhost:4001"
-        echo ""
-        
-        # Get IPv4 address (prefer IPv4 for DNS instructions)
-        local server_ipv4=$(curl -4 -s ifconfig.me 2>/dev/null || curl -s ipv4.icanhazip.com 2>/dev/null || ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -1)
-        local server_ipv6=$(curl -6 -s ifconfig.me 2>/dev/null || curl -s ipv6.icanhazip.com 2>/dev/null || ip -6 addr show | grep -oP '(?<=inet6\s)[a-f0-9:]+' | grep -v '^::1' | grep -v '^fe80' | head -1)
-        
-        print_warning "IMPORTANT: Make sure your DNS records point to this server:"
-        if [ -n "$server_ipv4" ]; then
-            echo "  IPv4 (A record):"
-            echo "    • $api_domain -> $server_ipv4"
-            echo "    • $client_domain -> $server_ipv4"
-        fi
-        if [ -n "$server_ipv6" ]; then
-            echo "  IPv6 (AAAA record) - optional:"
-            echo "    • $api_domain -> $server_ipv6"
-            echo "    • $client_domain -> $server_ipv6"
-        fi
-        
-        # Store domains for SSL configuration
-        export API_DOMAIN="$api_domain"
-        export CLIENT_DOMAIN="$client_domain"
-    else
-        safe_log "Skipping reverse proxy configuration"
-    fi
-}
-
-# ============================================================================
-# CONFIGURE SSL
-# ============================================================================
-configure_ssl() {
-    print_section "SSL Configuration"
-    
-    echo "Do you want to configure SSL certificates? (y/n)"
-    read -p "Choice: " ssl_choice
-    
-    if [[ "$ssl_choice" == "y" || "$ssl_choice" == "Y" ]]; then
-        safe_log "Configuring SSL certificates"
-        
-        # Install certbot if not present
-        if ! command -v certbot &> /dev/null; then
-            print_progress "Installing Certbot"
-            case $PKG_MANAGER in
-                apt)
-                    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq certbot python3-certbot-nginx >/dev/null 2>&1 || true
-                    ;;
-                yum|dnf)
-                    $PKG_MANAGER install -y -q certbot python3-certbot-nginx >/dev/null 2>&1 || true
-                    ;;
-                pacman)
-                    pacman -S --noconfirm certbot certbot-nginx >/dev/null 2>&1 || true
-                    ;;
-                brew)
-                    brew install certbot >/dev/null 2>&1 || true
-                    ;;
-            esac
-            print_done
-        fi
-        
-        # Use domains from reverse proxy config or ask for them
-        if [ -z "$API_DOMAIN" ] || [ -z "$CLIENT_DOMAIN" ]; then
-            echo "Enter your API domain (e.g., api.example.com):"
-            read -p "API Domain: " API_DOMAIN
-            
-            echo "Enter your client domain (e.g., app.example.com):"
-            read -p "Client Domain: " CLIENT_DOMAIN
-        fi
-        
-        echo "Enter your email for SSL certificates:"
-        read -p "Email: " email
-        
-        # Get certificates for both domains
-        print_progress "Obtaining SSL certificates"
-        
-        # Try to get certificates
-        if certbot --nginx -d "$API_DOMAIN" -d "$CLIENT_DOMAIN" --non-interactive --agree-tos --email "$email" 2>&1 | tee /tmp/certbot.log | grep -q "Successfully"; then
-            print_done
-            print_success "SSL certificates obtained successfully!"
-            
-            # Verify HTTPS is working
-            print_progress "Verifying HTTPS configuration"
-            sleep 2
-            if curl -s -o /dev/null -w "%{http_code}" "https://$API_DOMAIN/health" 2>/dev/null | grep -q "200\|404\|502"; then
-                print_done
-                print_success "HTTPS is working for API domain"
-            else
-                print_warning "Could not verify HTTPS for API domain"
-            fi
-            
-            if curl -s -o /dev/null -w "%{http_code}" "https://$CLIENT_DOMAIN" 2>/dev/null | grep -q "200\|404\|502"; then
-                print_success "HTTPS is working for Client domain"
-            else
-                print_warning "Could not verify HTTPS for Client domain"
-            fi
-        else
-            print_warning "Could not obtain certificates automatically"
-            echo ""
-            print_info "Common issues:"
-            echo "  • DNS not pointing to this server yet"
-            echo "  • Ports 80/443 not accessible from internet"
-            echo "  • Domain not resolving"
-            echo ""
-            echo "To manually obtain certificates later:"
-            echo "  sudo certbot --nginx -d $API_DOMAIN -d $CLIENT_DOMAIN"
-            echo ""
-            echo "To test without SSL, you can access:"
-            echo "  • http://$API_DOMAIN"
-            echo "  • http://$CLIENT_DOMAIN"
-        fi
-        
-        print_info "SSL status for domains:"
-        echo "  • $API_DOMAIN"
-        echo "  • $CLIENT_DOMAIN"
-        
-        # Setup auto-renewal
-        print_progress "Setting up auto-renewal"
-        (crontab -l 2>/dev/null; echo "0 0 * * * /usr/bin/certbot renew --quiet") | crontab - 2>/dev/null || true
-        print_done
-    else
-        safe_log "Skipping SSL configuration"
-    fi
-}
-
-# ============================================================================
-# CREATE CLI TOOL
-# ============================================================================
-create_cli_tool() {
-    print_section "Installing CLI Tool"
-    
-    print_progress "Creating CLI tool"
-    
-    cat > /usr/local/bin/statistics << 'EOF'
-#!/bin/bash
-cd /var/www/vaultscope-statistics 2>/dev/null || cd /opt/vaultscope-statistics 2>/dev/null
-node cli.js "$@" 2>/dev/null || echo "VaultScope Statistics CLI"
 EOF
+        
+        ln -sf /etc/nginx/sites-available/vss-server /etc/nginx/sites-enabled/
+    fi
     
-    chmod +x /usr/local/bin/statistics
-    print_done
+    if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "client" ]]; then
+        cat > /etc/nginx/sites-available/vss-client << EOF
+server {
+    listen 80;
+    server_name $CLIENT_DOMAIN;
     
-    print_success "CLI tool installed: 'statistics'"
+    location / {
+        proxy_pass http://localhost:4001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOF
+        
+        ln -sf /etc/nginx/sites-available/vss-client /etc/nginx/sites-enabled/
+    fi
+    
+    systemctl reload nginx
+    
+    if $USE_SSL; then
+        log "Setting up SSL certificates..."
+        
+        if [[ -n "$SERVER_DOMAIN" ]]; then
+            certbot --nginx -d "$SERVER_DOMAIN" --non-interactive --agree-tos --email "$SSL_EMAIL"
+        fi
+        
+        if [[ -n "$CLIENT_DOMAIN" ]]; then
+            certbot --nginx -d "$CLIENT_DOMAIN" --non-interactive --agree-tos --email "$SSL_EMAIL"
+        fi
+    fi
 }
 
-# ============================================================================
-# MAIN INSTALLATION FLOW
-# ============================================================================
-main() {
-    # Initial setup
-    print_header
-    check_root
-    detect_os
+create_vss_cli() {
+    log "Creating VSS CLI tool..."
     
-    # Setup logging AFTER detecting OS
-    setup_logging
+    # Check if cli.js exists in the installation directory
+    local CLI_PATH=""
+    if [[ -f "$INSTALL_DIR_FULL/cli.js" ]]; then
+        CLI_PATH="$INSTALL_DIR_FULL/cli.js"
+    elif [[ -f "$INSTALL_DIR_SERVER/../cli.js" ]]; then
+        CLI_PATH="$INSTALL_DIR_SERVER/../cli.js"
+    fi
     
-    # Check for existing installation
-    check_existing_installation
-    
-    # Install everything
-    install_dependencies
-    install_nodejs
-    install_application
-    setup_services
-    configure_reverse_proxy
-    configure_ssl
-    create_cli_tool
-    
-    # Final message
-    print_section "Installation Complete!"
-    
-    echo -e "${GREEN}✓ VaultScope Statistics has been installed successfully!${NC}"
+    if [[ -n "$CLI_PATH" ]]; then
+        # Make cli.js executable
+        chmod +x "$CLI_PATH"
+        
+        # Create symlink to /usr/local/bin/vss
+        ln -sf "$CLI_PATH" /usr/local/bin/vss
+        
+        log "VSS CLI tool linked from $CLI_PATH to /usr/local/bin/vss"
+    else
+        # Fallback to the old bash script if cli.js doesn't exist
+        cat > /usr/local/bin/vss << 'EOF'
+#!/bin/bash
+
+VSS_CONFIG="/etc/vss/config.json"
+VSS_VERSION="6.1.0"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+if [[ ! -f "$VSS_CONFIG" ]]; then
+    echo -e "${RED}Error: VaultScope Statistics is not installed${NC}"
+    exit 1
+fi
+
+INSTALL_TYPE=$(grep -o '"install_type":"[^"]*' "$VSS_CONFIG" | cut -d'"' -f4)
+INSTALL_DIR=$(grep -o '"install_dir":"[^"]*' "$VSS_CONFIG" | cut -d'"' -f4)
+
+show_help() {
+    echo "VaultScope Statistics CLI v$VSS_VERSION"
     echo ""
-    echo "Service Status:"
-    echo "  • Server: http://localhost:4000"
-    [ -f /etc/systemd/system/vaultscope-statistics-client.service ] && echo "  • Client: http://localhost:4001"
+    echo "Usage: vss [command] [options]"
     echo ""
     echo "Commands:"
-    echo "  • CLI Tool: statistics"
-    echo "  • Start server: systemctl start vaultscope-statistics-server"
-    echo "  • Stop server: systemctl stop vaultscope-statistics-server"
-    echo "  • Start client: systemctl start vaultscope-statistics-client"
-    echo "  • Stop client: systemctl stop vaultscope-statistics-client"
-    echo "  • View server logs: journalctl -u vaultscope-statistics-server -f"
-    echo "  • View client logs: journalctl -u vaultscope-statistics-client -f"
-    echo ""
+    echo "  status          Show service status"
+    echo "  start           Start services"
+    echo "  stop            Stop services"
+    echo "  restart         Restart services"
+    echo "  logs [service]  Show logs (server/client)"
+    echo "  update          Update installation"
+    echo "  check           Check installation health"
+    echo "  apikey          Manage API keys"
+    echo "    list          List all API keys"
+    echo "    create <name> Create new API key"
+    echo "    delete <key>  Delete API key"
+    echo "  uninstall       Remove VaultScope Statistics"
+    echo "  help            Show this help message"
+}
+
+case "$1" in
+    status)
+        echo -e "${CYAN}VaultScope Statistics Status${NC}"
+        echo "Installation type: $INSTALL_TYPE"
+        
+        if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "server" ]]; then
+            systemctl status vss-server --no-pager
+        fi
+        
+        if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "client" ]]; then
+            systemctl status vss-client --no-pager
+        fi
+        ;;
+        
+    start)
+        if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "server" ]]; then
+            systemctl start vss-server
+            echo -e "${GREEN}Server started${NC}"
+        fi
+        
+        if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "client" ]]; then
+            systemctl start vss-client
+            echo -e "${GREEN}Client started${NC}"
+        fi
+        ;;
+        
+    stop)
+        if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "server" ]]; then
+            systemctl stop vss-server
+            echo -e "${YELLOW}Server stopped${NC}"
+        fi
+        
+        if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "client" ]]; then
+            systemctl stop vss-client
+            echo -e "${YELLOW}Client stopped${NC}"
+        fi
+        ;;
+        
+    restart)
+        if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "server" ]]; then
+            systemctl restart vss-server
+            echo -e "${GREEN}Server restarted${NC}"
+        fi
+        
+        if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "client" ]]; then
+            systemctl restart vss-client
+            echo -e "${GREEN}Client restarted${NC}"
+        fi
+        ;;
+        
+    logs)
+        SERVICE="$2"
+        if [[ -z "$SERVICE" ]]; then
+            if [[ "$INSTALL_TYPE" == "server" ]]; then
+                SERVICE="server"
+            elif [[ "$INSTALL_TYPE" == "client" ]]; then
+                SERVICE="client"
+            else
+                echo "Please specify service: vss logs [server|client]"
+                exit 1
+            fi
+        fi
+        
+        case "$SERVICE" in
+            server)
+                journalctl -u vss-server -f
+                ;;
+            client)
+                journalctl -u vss-client -f
+                ;;
+            *)
+                echo "Invalid service. Use: server or client"
+                ;;
+        esac
+        ;;
+        
+    update)
+        cd "$INSTALL_DIR"
+        git pull origin $(git branch --show-current)
+        npm install
+        
+        if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "server" ]]; then
+            npm run build:server
+            systemctl restart vss-server
+        fi
+        
+        if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "client" ]]; then
+            npm run build:client
+            systemctl restart vss-client
+        fi
+        
+        echo -e "${GREEN}Update completed${NC}"
+        ;;
+        
+    check)
+        echo -e "${CYAN}Checking installation health...${NC}"
+        
+        if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "server" ]]; then
+            if curl -s http://localhost:4000/health > /dev/null; then
+                echo -e "${GREEN}✓ Server is healthy${NC}"
+            else
+                echo -e "${RED}✗ Server is not responding${NC}"
+            fi
+        fi
+        
+        if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "client" ]]; then
+            if curl -s http://localhost:4001 > /dev/null; then
+                echo -e "${GREEN}✓ Client is healthy${NC}"
+            else
+                echo -e "${RED}✗ Client is not responding${NC}"
+            fi
+        fi
+        ;;
+        
+    apikey)
+        if [[ "$INSTALL_TYPE" != "full" ]] && [[ "$INSTALL_TYPE" != "server" ]]; then
+            echo -e "${RED}API key management is only available with server installation${NC}"
+            exit 1
+        fi
+        
+        cd "$INSTALL_DIR"
+        
+        case "$2" in
+            list)
+                npm run apikey list
+                ;;
+            create)
+                if [[ -z "$3" ]]; then
+                    echo "Usage: vss apikey create <name>"
+                    exit 1
+                fi
+                shift 2
+                npm run apikey create "$@"
+                ;;
+            delete)
+                if [[ -z "$3" ]]; then
+                    echo "Usage: vss apikey delete <key>"
+                    exit 1
+                fi
+                npm run apikey delete "$3"
+                ;;
+            *)
+                echo "Usage: vss apikey [list|create|delete]"
+                ;;
+        esac
+        ;;
+        
+    uninstall)
+        echo -e "${YELLOW}Warning: This will completely remove VaultScope Statistics${NC}"
+        read -p "Are you sure? [y/N]: " confirm </dev/tty
+        if [[ "$confirm" == "y" ]] || [[ "$confirm" == "Y" ]]; then
+            bash /var/log/vss-installer/uninstall.sh
+        fi
+        ;;
+        
+    help|--help|-h)
+        show_help
+        ;;
+        
+    *)
+        show_help
+        exit 1
+        ;;
+esac
+EOF
+        
+        chmod +x /usr/local/bin/vss
+        log "VSS CLI tool installed at /usr/local/bin/vss (bash fallback)"
+    fi
+}
+
+save_configuration() {
+    log "Saving configuration..."
     
-    # Save installation info
-    mkdir -p "$CONFIG_DIR" 2>/dev/null || true
-    cat > "$CONFIG_DIR/installation.json" << EOF
+    mkdir -p "$CONFIG_DIR"
+    
+    cat > "$CONFIG_FILE" << EOF
 {
-  "version": "8.0",
-  "installed": "$(date -Iseconds)",
-  "install_dir": "$INSTALL_DIR",
-  "config_dir": "$CONFIG_DIR",
-  "log_dir": "$LOG_DIR"
+    "version": "$VSS_VERSION",
+    "install_type": "$INSTALL_TYPE",
+    "install_dir": "$TARGET_DIR",
+    "branch": "$BRANCH",
+    "use_nginx": $USE_NGINX,
+    "server_domain": "$SERVER_DOMAIN",
+    "client_domain": "$CLIENT_DOMAIN",
+    "use_ssl": $USE_SSL,
+    "installed_at": "$(date -Iseconds)"
 }
 EOF
     
-    print_success "Installation completed successfully!"
+    chmod 600 "$CONFIG_FILE"
 }
 
-# ============================================================================
-# RUN MAIN FUNCTION
-# ============================================================================
+restart_services() {
+    log "Restarting services..."
+    
+    if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "server" ]]; then
+        systemctl restart vss-server
+    fi
+    
+    if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "client" ]]; then
+        systemctl restart vss-client
+    fi
+}
+
+display_installation_info() {
+    echo ""
+    echo "========================================="
+    echo -e "${GREEN}VaultScope Statistics Installation Complete!${NC}"
+    echo "========================================="
+    echo ""
+    echo -e "${CYAN}Installation Details:${NC}"
+    echo "Version: $VSS_VERSION"
+    echo "Type: $INSTALL_TYPE"
+    echo "Branch: $BRANCH"
+    echo "Directory: $TARGET_DIR"
+    echo ""
+    
+    if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "server" ]]; then
+        echo -e "${CYAN}Server Configuration:${NC}"
+        echo "Port: 4000"
+        if [[ -n "$SERVER_DOMAIN" ]]; then
+            echo "Domain: $SERVER_DOMAIN"
+            if $USE_SSL; then
+                echo "URL: https://$SERVER_DOMAIN"
+            else
+                echo "URL: http://$SERVER_DOMAIN"
+            fi
+        else
+            echo "URL: http://localhost:4000"
+        fi
+        echo ""
+        
+        if [[ -n "$API_KEY" ]]; then
+            echo -e "${YELLOW}IMPORTANT - Save these credentials:${NC}"
+            echo "Admin API Key: $API_KEY"
+            echo ""
+            echo "Use this API key when configuring nodes to connect to this server."
+        fi
+    fi
+    
+    if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "client" ]]; then
+        echo -e "${CYAN}Client Configuration:${NC}"
+        echo "Port: 4001"
+        if [[ -n "$CLIENT_DOMAIN" ]]; then
+            echo "Domain: $CLIENT_DOMAIN"
+            if $USE_SSL; then
+                echo "URL: https://$CLIENT_DOMAIN"
+            else
+                echo "URL: http://$CLIENT_DOMAIN"
+            fi
+        else
+            echo "URL: http://localhost:4001"
+        fi
+    fi
+    
+    echo ""
+    echo -e "${CYAN}Useful Commands:${NC}"
+    echo "Check services:  systemctl status vss-server vss-client"
+    echo "View logs:       journalctl -u vss-server -f"
+    echo "                 journalctl -u vss-client -f"
+    echo "Restart server:  systemctl restart vss-server"
+    echo "Restart client:  systemctl restart vss-client"
+    echo "CLI tool:        vss --help"
+    echo "API keys:        vss apikey list"
+    echo "Health check:    vss health"
+    echo ""
+    echo -e "${CYAN}Test Installation:${NC}"
+    echo "Server health:   curl http://localhost:4000/health"
+    echo "Client status:   curl http://localhost:4001"
+    echo ""
+    echo -e "${GREEN}Installation log: $LOG_FILE${NC}"
+    echo -e "${GREEN}Configuration: $CONFIG_FILE${NC}"
+}
+
+main() {
+    clear
+    echo "========================================="
+    echo "VaultScope Statistics Installer v$VSS_VERSION"
+    echo "========================================="
+    echo ""
+    
+    # Ensure we can read from terminal even when piped
+    exec < /dev/tty
+    
+    check_root
+    detect_os
+    check_existing_installation
+    
+    select_installation_type
+    select_branch
+    
+    if prompt_yes_no "Would you like to use Nginx as a reverse proxy?"; then
+        USE_NGINX=true
+        
+        # Get server IP for DNS configuration
+        local server_ip=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -n1)
+        
+        echo ""
+        echo -e "${CYAN}=== Domain Configuration ===${NC}"
+        echo -e "Your server IP address is: ${GREEN}$server_ip${NC}"
+        echo "Please configure your DNS A records to point to this IP before continuing."
+        echo ""
+        
+        # Collect domain names based on installation type
+        if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "server" ]]; then
+            read -p "Enter domain for API/Server (e.g., api.example.com): " SERVER_DOMAIN </dev/tty
+            echo -e "Add DNS A record: ${GREEN}$SERVER_DOMAIN -> $server_ip${NC}"
+        fi
+        
+        if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "client" ]]; then
+            read -p "Enter domain for Client (e.g., stats.example.com): " CLIENT_DOMAIN </dev/tty
+            echo -e "Add DNS A record: ${GREEN}$CLIENT_DOMAIN -> $server_ip${NC}"
+        fi
+        
+        echo ""
+        if prompt_yes_no "Would you like to setup SSL certificates?"; then
+            USE_SSL=true
+            read -p "Enter email address for SSL certificates: " SSL_EMAIL </dev/tty
+        fi
+        
+        if prompt_yes_no "Have you configured the DNS records? Continue?"; then
+            log "DNS records confirmed by user"
+        else
+            error "Please configure DNS records and run the installer again."
+            exit 1
+        fi
+    fi
+    
+    install_dependencies
+    setup_application
+    create_systemd_services
+    setup_nginx
+    create_vss_cli
+    save_configuration
+    
+    display_installation_info
+}
+
+trap 'error "Installation failed. Check log at $LOG_FILE"' ERR
+
 main "$@"

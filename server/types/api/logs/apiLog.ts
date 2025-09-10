@@ -17,5 +17,7 @@ export interface ApiKeyStats {
     failedRequests: number;
     averageResponseTime: number;
     lastUsed: Date | null;
-    requestsPerDay: { [date: string]: number };
+    requestsByEndpoint?: { [endpoint: string]: number };
+    requestsByStatusCode?: { [code: string]: number };
+    requestsPerDay?: { [date: string]: number };
 }

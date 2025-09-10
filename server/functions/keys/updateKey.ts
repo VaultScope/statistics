@@ -1,37 +1,33 @@
-import { promises as fs } from "fs";
-import path from "path";
 import Key from "../../types/api/keys/key";
 import Permissions from "../../types/api/keys/permissions";
-
-const apiKeysPath = path.resolve(process.cwd(), "apiKeys.json");
-
-async function loadKeys(): Promise<Key[]> {
-    try {
-        const data = await fs.readFile(apiKeysPath, "utf-8");
-        return JSON.parse(data);
-    } catch (err) {
-        return [];
-    }
-}
-
-async function saveKeys(keys: Key[]): Promise<void> {
-    await fs.writeFile(apiKeysPath, JSON.stringify(keys, null, 2));
-}
+import { apiKeyRepository } from "../../db/repositories/apiKeyRepository";
 
 export async function updateApiKeyPermissions(identifier: string, permissions: Permissions): Promise<boolean> {
-    const keys = await loadKeys();
-    const keyIndex = keys.findIndex(k => k.uuid === identifier || k.key === identifier);
-    
-    if (keyIndex === -1) {
+    try {
+        // Update the permissions
+        return await apiKeyRepository.updateApiKeyPermissions(identifier, permissions);
+    } catch (error) {
+        console.error("Error updating API key permissions:", error);
         return false;
     }
-    
-    keys[keyIndex].permissions = permissions;
-    await saveKeys(keys);
-    return true;
 }
 
 export async function getApiKey(identifier: string): Promise<Key | null> {
-    const keys = await loadKeys();
-    return keys.find(k => k.uuid === identifier || k.key === identifier) || null;
+    try {
+        const key = await apiKeyRepository.getApiKey(identifier);
+        if (!key) {
+            return null;
+        }
+        
+        return {
+            uuid: key.uuid!,
+            name: key.name,
+            key: key.key,
+            permissions: key.permissions,
+            createdAt: new Date(key.createdAt)
+        };
+    } catch (error) {
+        console.error("Error getting API key:", error);
+        return null;
+    }
 }

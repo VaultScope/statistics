@@ -3,13 +3,13 @@ import fs from 'fs';
 import path from 'path';
 import { DEFAULT_ROLES } from './permissions';
 
-// Use a shared database location for both client and server
-// In production, use /var/www/vaultscope-statistics/database.json
-// In development, use local database.json
+// Client's own database.json file
+// In production, use /var/www/vaultscope-statistics/client/database.json
+// In development, use client/database.json
 const dbPath = process.env.DATABASE_PATH || 
   (process.env.NODE_ENV === 'production' 
-    ? '/var/www/vaultscope-statistics/database.json'
-    : path.join(process.cwd(), 'database.json'));
+    ? '/var/www/vaultscope-statistics/client/database.json'
+    : path.join(__dirname, '..', 'database.json'));
 
 interface Database {
   users: User[];
@@ -24,6 +24,7 @@ export interface User {
   firstName: string;
   password: string;
   roleId: string; // Changed from role to roleId
+  role: string; // Added for compatibility
   email?: string;
   isActive: boolean;
   lastLogin?: string;
@@ -66,12 +67,20 @@ function getDb(createIfNotExists: boolean = true): Database {
       const parsedData = JSON.parse(data);
       
       // Validate and migrate database structure
+      const defaultCategories = [
+        { id: 1, name: 'Production', color: '#22c55e', icon: 'server', createdAt: new Date().toISOString() },
+        { id: 2, name: 'Development', color: '#3b82f6', icon: 'code', createdAt: new Date().toISOString() },
+        { id: 3, name: 'Testing', color: '#f59e0b', icon: 'flask', createdAt: new Date().toISOString() },
+        { id: 4, name: 'Backup', color: '#8b5cf6', icon: 'database', createdAt: new Date().toISOString() },
+        { id: 5, name: 'Monitoring', color: '#ef4444', icon: 'activity', createdAt: new Date().toISOString() }
+      ];
+      
       const db: Database = {
         users: parsedData.users || [],
         nodes: parsedData.nodes || [],
-        categories: parsedData.categories || [
-          { id: 1, name: 'default', color: '#ffffff', icon: 'folder', createdAt: new Date().toISOString() }
-        ],
+        categories: parsedData.categories && parsedData.categories.length > 0 
+          ? parsedData.categories 
+          : defaultCategories,
         roles: parsedData.roles || DEFAULT_ROLES
       };
       
@@ -92,7 +101,11 @@ function getDb(createIfNotExists: boolean = true): Database {
     users: [],
     nodes: [],
     categories: [
-      { id: 1, name: 'default', color: '#ffffff', icon: 'folder', createdAt: new Date().toISOString() }
+      { id: 1, name: 'Production', color: '#22c55e', icon: 'server', createdAt: new Date().toISOString() },
+      { id: 2, name: 'Development', color: '#3b82f6', icon: 'code', createdAt: new Date().toISOString() },
+      { id: 3, name: 'Testing', color: '#f59e0b', icon: 'flask', createdAt: new Date().toISOString() },
+      { id: 4, name: 'Backup', color: '#8b5cf6', icon: 'database', createdAt: new Date().toISOString() },
+      { id: 5, name: 'Monitoring', color: '#ef4444', icon: 'activity', createdAt: new Date().toISOString() }
     ],
     roles: DEFAULT_ROLES
   };
@@ -141,6 +154,7 @@ export const createUser = async (
     firstName,
     password: hashedPassword,
     roleId: isFirstUser ? 'admin' : roleId,
+    role: isFirstUser ? 'admin' : roleId, // Added for compatibility
     email,
     isActive: true,
     createdAt: new Date().toISOString()

@@ -34,7 +34,8 @@ export async function POST(request: NextRequest) {
       id: user.id,
       username: user.username,
       firstName: user.firstName,
-      roleId: user.roleId
+      roleId: user.roleId,
+      role: user.roleId // Added for compatibility
     });
     
     const cookieStore = await cookies();

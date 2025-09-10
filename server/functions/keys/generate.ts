@@ -5,7 +5,7 @@ It's probably overengineered as hell, but it generates pretty good random string
 If you read this, support my broke ass on PayPal: https://www.paypal.me/cptcr
 */
 
-export default function makeid(length = 45): string {
+export default function makeid(length = 64): string {
   class EntropyCollector {
     private entropy: number[] = [];
     private timeSeeds: number[] = [];
