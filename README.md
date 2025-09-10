@@ -12,7 +12,7 @@
 ### One-Line Installation (Recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vaultscope/statistics/dev/installer.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/vaultscope/statistics/main/installer.sh | sudo bash
 ```
 
 Or clone and install:
