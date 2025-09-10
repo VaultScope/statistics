@@ -3,6 +3,9 @@
   "version": "2.0.0",
   "description": "VaultScope Statistics - System Monitoring Suite",
   "private": true,
+  "bin": {
+    "vss": "./cli.js"
+  },
   "scripts": {
     "install:all": "npm run install:server && npm run install:client",
     "install:server": "cd server && npm install",
