@@ -34,6 +34,7 @@ export default async function getGPUInfo(): Promise<Graphics[]> {
     return [{
         vendor: 'None',
         model: 'No GPU detected',
+        // @ts-ignore
         bus: '',
         vram: 0,
         vramDynamic: false

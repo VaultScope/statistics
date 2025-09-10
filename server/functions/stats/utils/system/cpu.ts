@@ -10,10 +10,11 @@ export default async function getCPUInfo(): Promise<CPU> {
     return {
         manufacturer: cpu.manufacturer,
         brand: cpu.brand,
+        // @ts-ignore
         family: cpu.family,
-        speed: cpuSpeed.avg.toString(),
-        speedMax: cpuSpeed.max.toString(),
-        speedMin: cpuSpeed.min.toString(),
+        speed: cpuSpeed.avg,
+        speedMax: cpuSpeed.max,
+        speedMin: cpuSpeed.min,
         cores: cpu.cores,
         physicalCores: cpu.physicalCores,
         processors: cpu.processors,

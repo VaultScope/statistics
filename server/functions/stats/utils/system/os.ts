@@ -15,6 +15,7 @@ export default async function getOSInfo(): Promise<OS> {
         kernel: osInfo.kernel,
         arch: osInfo.arch,
         hostname: osInfo.hostname,
+        // @ts-ignore
         fqdn: osInfo.fqdn || osInfo.hostname,
         build: osInfo.build || '',
         uefi: osInfo.uefi || false,

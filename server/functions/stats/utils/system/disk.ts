@@ -3,6 +3,7 @@ import { DiskLayout } from '@server/types/statistics/system';
 
 export default async function getDiskInfo(): Promise<DiskLayout[]> {
     const disks = await si.diskLayout();
+    // @ts-ignore
     return disks.map(disk => ({
         devices: [{
             type: disk.type || '',

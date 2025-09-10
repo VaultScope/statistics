@@ -150,14 +150,9 @@ export default async function runSpeedtest(): Promise<SpeedtestResult> {
         
         return {
             ping: avgPing,
-            download: {
-                speed: parseFloat(downloadSpeed.toFixed(2)),
-                serverLocation: serverInfo
-            },
-            upload: {
-                speed: parseFloat(uploadSpeed.toFixed(2)),
-                serverLocation: serverInfo
-            },
+            download: parseFloat(downloadSpeed.toFixed(2)),
+            upload: parseFloat(uploadSpeed.toFixed(2)),
+            server: bestServer,
             timestamp: new Date()
         };
         

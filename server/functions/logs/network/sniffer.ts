@@ -48,6 +48,7 @@ export class NetworkSniffer implements INetworkSniffer {
       const eth = this.decoders.Ethernet(this.buffer);
       const packet: NetworkPacket = {
         timestamp: new Date(),
+        // @ts-ignore
         length: nbytes,
         linkType: linkType,
         ethernet: {
