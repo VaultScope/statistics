@@ -1,12 +1,12 @@
 # VaultScope Statistics
 
-🚀 **A powerful, real-time system monitoring and statistics dashboard with automatic database initialization**
+**A powerful, real-time system monitoring and statistics dashboard with automatic database initialization**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen)](https://nodejs.org)
 [![Next.js](https://img.shields.io/badge/Next.js-15-black)](https://nextjs.org)
 
-## 🎯 Quick Start
+## Quick Start
 
 ### One-Line Installation (Recommended)
 
@@ -21,15 +21,15 @@ git clone https://github.com/vaultscope/statistics.git && cd statistics && sudo 
 ```
 
 The installer will:
-✅ Install Node.js 20+ (if not present)  
-✅ Set up server and client applications  
-✅ **Automatically create and initialize databases**  
-✅ Configure systemd services  
-✅ Set up Nginx reverse proxy (optional)  
-✅ Configure SSL certificates (optional)  
-✅ Generate admin API keys  
+- Install Node.js 20+ (if not present)
+- Set up server and client applications
+- **Automatically create and initialize databases**
+- Configure systemd services
+- Set up Nginx reverse proxy (optional)
+- Configure SSL certificates (optional)
+- Generate admin API keys  
 
-## 📋 Prerequisites
+## Prerequisites
 
 - **Operating System**: Linux (Ubuntu/Debian preferred), macOS, or WSL2
 - **Node.js**: Version 20.0.0 or higher
@@ -37,11 +37,11 @@ The installer will:
 - **Disk Space**: 500MB free space
 - **Permissions**: Root/sudo access for installation
 
-## 🏗️ Architecture
+## Architecture
 
 This project consists of **two standalone applications** that work together:
 
-### 📡 Server Application (`/server`)
+### Server Application (`/server`)
 - **Port**: 4000
 - **Database**: SQLite with WAL mode
 - **Auto-initialization**: Creates 17 tables on first run
@@ -52,7 +52,7 @@ This project consists of **two standalone applications** that work together:
   - API key management with permissions
   - Process and network monitoring
 
-### 💻 Client Application (`/client`)
+### Client Application (`/client`)
 - **Port**: 4001
 - **Framework**: Next.js 15 + React 19
 - **Database**: JSON file (lightweight)
@@ -63,7 +63,7 @@ This project consists of **two standalone applications** that work together:
   - User and role management
   - Node monitoring interface
 
-## 🚀 Installation Methods
+## Installation Methods
 
 ### Method 1: Automated Installer (Production Ready)
 
@@ -147,7 +147,7 @@ npm install -g pm2
 pm2 start ecosystem.config.js
 ```
 
-## 🗄️ Database Information
+## Database Information
 
 ### Automatic Database Initialization
 
@@ -176,7 +176,7 @@ Automatically creates structure with:
 - 2 default roles (Administrator, Viewer)
 - Ready for user and node registration
 
-## 🔑 API Authentication
+## API Authentication
 
 ### Generate Admin API Key
 
@@ -187,8 +187,8 @@ cd server
 npm run apikey create "Admin Key" -- --admin --viewStats --createApiKey --deleteApiKey --viewApiKeys --usePowerCommands
 
 # Output will show:
-# ✅ API Key created successfully!
-# 🔑 API Key: 64-character-key-here
+# API Key created successfully!
+# API Key: 64-character-key-here
 # Save this key securely!
 ```
 
@@ -206,7 +206,7 @@ curl -H "Authorization: Bearer YOUR_API_KEY" http://localhost:4000/api/stats
 curl "http://localhost:4000/api/stats?apiKey=YOUR_API_KEY"
 ```
 
-## 📊 Available Endpoints
+## Available Endpoints
 
 ### Public Endpoints
 - `GET /health` - Health check (no auth required)
@@ -224,7 +224,7 @@ curl "http://localhost:4000/api/stats?apiKey=YOUR_API_KEY"
 - `GET /api/alerts` - Active alerts
 - `POST /api/alerts` - Create alert rule
 
-## ⚙️ Configuration
+## Configuration
 
 ### Environment Variables
 
@@ -273,7 +273,7 @@ sudo journalctl -u vss-server -f
 sudo journalctl -u vss-client -f
 ```
 
-## 🛠️ Development
+## Development
 
 ### Project Structure
 ```
@@ -343,7 +343,7 @@ npm run start          # Start production server
 npm run lint           # Run ESLint
 ```
 
-## 🔒 Security Features
+## Security Features
 
 - **Token Authentication**: Secure API key system
 - **Rate Limiting**: Per-key request throttling
@@ -355,7 +355,7 @@ npm run lint           # Run ESLint
 - **Input Validation**: Comprehensive request validation
 - **HTTPS Support**: SSL/TLS encryption ready
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -396,7 +396,7 @@ npm run install:all
 npm run build:all
 ```
 
-## 📚 Additional Resources
+## Additional Resources
 
 - [API Documentation](./docs/API.md)
 - [Deployment Guide](./DEPLOYMENT.md)
@@ -404,7 +404,7 @@ npm run build:all
 - [Security Policy](./SECURITY.md)
 - [Changelog](./CHANGELOG.md)
 
-## 🤝 Contributing
+## Contributing
 
 We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
@@ -414,17 +414,17 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
 
-## 📄 License
+## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
-## 💬 Support
+## Support
 
 - **Issues**: [GitHub Issues](https://github.com/vaultscope/statistics/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/vaultscope/statistics/discussions)
 - **Security**: Report vulnerabilities to security@vaultscope.com
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - Built with [Next.js](https://nextjs.org) and [Express](https://expressjs.com)
 - Database powered by [SQLite](https://sqlite.org) and [Drizzle ORM](https://orm.drizzle.team)
@@ -433,4 +433,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**VaultScope Statistics** - Enterprise-grade monitoring made simple 🚀
+**VaultScope Statistics** - Enterprise-grade monitoring made simple
