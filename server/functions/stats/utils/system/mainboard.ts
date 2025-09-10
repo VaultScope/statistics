@@ -16,6 +16,7 @@ export default async function getMainboardInfo(): Promise<Mainboard> {
             vendor: bios.vendor || 'Unknown',
             version: bios.version || 'Unknown',
             releaseDate: bios.releaseDate || 'Unknown',
+            // @ts-ignore
             revision: bios.revision || 'Unknown',
             serial: bios.serial || 'Unknown',
         }

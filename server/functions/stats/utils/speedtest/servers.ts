@@ -64,8 +64,8 @@ export function sortServersByDistance(servers: SpeedtestServer[], userLocation: 
             distance: calculateDistance(
                 userLocation.lat,
                 userLocation.lon,
-                parseFloat(server.lat),
-                parseFloat(server.lon)
+                parseFloat(String(server.lat)),
+                parseFloat(String(server.lon))
             )
         }))
         .sort((a, b) => (a.distance || 0) - (b.distance || 0))

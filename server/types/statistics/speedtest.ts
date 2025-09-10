@@ -14,6 +14,10 @@ export interface SpeedTestServer {
   host: string;
   port: number;
   distance?: number;
+  url?: string;
+  sponsor?: string;
+  lat?: number;
+  lon?: number;
 }
 
 export interface SpeedTestLocation {

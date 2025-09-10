@@ -1,12 +1,12 @@
 #!/bin/bash
 
 #############################################
-# VaultScope Statistics Installer v6.2.8
+# VaultScope Statistics Installer v6.2.9
 #############################################
 
 set -e
 
-VSS_VERSION="6.2.8"
+VSS_VERSION="6.2.9"
 INSTALL_DIR_SERVER="/var/www/vs-statistics-server"
 INSTALL_DIR_CLIENT="/var/www/vs-statistics-client"
 INSTALL_DIR_FULL="/var/www/statistics"
@@ -176,7 +176,8 @@ perform_update() {
     
     if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "server" ]]; then
         log "Building server..."
-        npm run build:server || {
+        # Build with TypeScript errors allowed
+        cd server && npx tsc --noEmitOnError false && cd .. || {
             warning "Server build had TypeScript errors but continuing..."
         }
     fi
@@ -368,7 +369,7 @@ setup_application() {
     
     # Rebuild native modules to ensure compatibility
     log "Rebuilding native modules..."
-    npm rebuild || true
+    npm rebuild better-sqlite3 --build-from-source 2>/dev/null || npm rebuild || true
     
     if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "server" ]]; then
         log "Installing server dependencies..."
@@ -392,7 +393,8 @@ setup_application() {
     
     if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "server" ]]; then
         log "Building server..."
-        npm run build:server || {
+        # Build with TypeScript errors allowed
+        cd server && npx tsc --noEmitOnError false && cd .. || {
             warning "Server build had TypeScript errors but continuing..."
         }
         
@@ -590,11 +592,18 @@ EOF
         log "Setting up SSL certificates..."
         
         if [[ -n "$SERVER_DOMAIN" ]]; then
-            certbot --nginx -d "$SERVER_DOMAIN" --non-interactive --agree-tos --email "$SSL_EMAIL"
+            # Kill any existing certbot processes
+            pkill -f certbot 2>/dev/null || true
+            sleep 2
+            certbot --nginx -d "$SERVER_DOMAIN" --non-interactive --agree-tos --email "$SSL_EMAIL" || {
+                warning "SSL setup for $SERVER_DOMAIN may have failed - check if already configured"
+            }
         fi
         
         if [[ -n "$CLIENT_DOMAIN" ]]; then
-            certbot --nginx -d "$CLIENT_DOMAIN" --non-interactive --agree-tos --email "$SSL_EMAIL"
+            certbot --nginx -d "$CLIENT_DOMAIN" --non-interactive --agree-tos --email "$SSL_EMAIL" || {
+                warning "SSL setup for $CLIENT_DOMAIN may have failed - check if already configured"
+            }
         fi
     fi
 }

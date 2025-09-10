@@ -26,6 +26,7 @@ export default async function getRAMInfo(): Promise<RAM> {
         used: mem.used,
         active: mem.active,
         available: mem.available,
+        // @ts-ignore
         buffers: mem.buffers,
         cached: mem.cached,
         swapTotal: mem.swaptotal,

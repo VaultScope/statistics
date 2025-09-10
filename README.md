@@ -5,7 +5,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen)](https://nodejs.org)
 [![Next.js](https://img.shields.io/badge/Next.js-15-black)](https://nextjs.org)
-[![Installer Version](https://img.shields.io/badge/installer-v6.2.6-blue)](installer.sh)
+[![Installer Version](https://img.shields.io/badge/installer-v6.2.9-blue)](installer.sh)
 
 ## Quick Start
 
