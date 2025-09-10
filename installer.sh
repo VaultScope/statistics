@@ -34,6 +34,16 @@ NODE_VERSION="20"
 API_KEY=""
 ADMIN_KEY=""
 
+# Check if running in non-interactive mode (piped)
+if [ ! -t 0 ]; then
+    INTERACTIVE=false
+    # Set defaults for non-interactive mode
+    INSTALL_TYPE="full"
+    BRANCH="main"
+else
+    INTERACTIVE=true
+fi
+
 mkdir -p "$LOG_DIR"
 exec 1> >(tee -a "$LOG_FILE")
 exec 2>&1
@@ -60,6 +70,16 @@ success() {
 
 prompt_yes_no() {
     local prompt="$1"
+    local default="${2:-n}"
+    
+    if [[ "$INTERACTIVE" == "false" ]]; then
+        if [[ "$default" == "y" ]]; then
+            return 0
+        else
+            return 1
+        fi
+    fi
+    
     local response
     while true; do
         read -p "$prompt [y/n]: " response
@@ -265,6 +285,11 @@ install_dependencies() {
 }
 
 select_installation_type() {
+    if [[ "$INTERACTIVE" == "false" ]]; then
+        log "Non-interactive mode: Using default installation type (full)"
+        return
+    fi
+    
     echo ""
     echo "Select installation type:"
     echo "1) Full installation (Server + Client)"
@@ -296,6 +321,11 @@ select_installation_type() {
 }
 
 select_branch() {
+    if [[ "$INTERACTIVE" == "false" ]]; then
+        log "Non-interactive mode: Using default branch (main)"
+        return
+    fi
+    
     echo ""
     echo "Select branch to install from:"
     echo "1) main (recommended - stable)"
@@ -896,6 +926,14 @@ main() {
     echo "VaultScope Statistics Installer v$VSS_VERSION"
     echo "========================================="
     echo ""
+    
+    if [[ "$INTERACTIVE" == "false" ]]; then
+        echo "Running in non-interactive mode with defaults:"
+        echo "- Installation type: full"
+        echo "- Branch: main"
+        echo "- No Nginx/SSL configuration"
+        echo ""
+    fi
     
     check_root
     detect_os
