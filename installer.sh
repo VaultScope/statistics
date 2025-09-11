@@ -491,13 +491,16 @@ After=network.target
 
 [Service]
 Type=simple
-User=www-data
+User=root
 WorkingDirectory=$TARGET_DIR
 Environment="NODE_ENV=production"
 Environment="PORT=4000"
-ExecStart=/usr/bin/node dist/server/index.js
-Restart=on-failure
+ExecStart=/usr/bin/node server/dist/index.js
+Restart=always
 RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vss-server
 
 [Install]
 WantedBy=multi-user.target
@@ -512,18 +515,21 @@ EOF
     if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "client" ]]; then
         cat > /etc/systemd/system/vss-client.service << EOF
 [Unit]
-Description=VaultScope Statistics Client
-After=network.target
+Description=VaultScope Statistics Client (Next.js)
+After=network.target vss-server.service
 
 [Service]
 Type=simple
-User=www-data
+User=root
 WorkingDirectory=$TARGET_DIR/client
 Environment="NODE_ENV=production"
 Environment="PORT=4001"
-ExecStart=/usr/bin/npm run start
-Restart=on-failure
+ExecStart=/usr/bin/npm start
+Restart=always
 RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vss-client
 
 [Install]
 WantedBy=multi-user.target
