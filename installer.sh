@@ -428,11 +428,22 @@ setup_application() {
         fi
         cd ..
         
-        log "Generating initial API key for node connections..."
+        log "Rebuilding native modules for current Node.js version..."
         cd "$TARGET_DIR"
-        # Ensure native modules are built for current Node version
-        npm rebuild better-sqlite3 2>/dev/null || true
+        # Rebuild ALL native modules, not just better-sqlite3
+        npm rebuild 2>/dev/null || {
+            warning "Failed to rebuild some native modules"
+        }
         
+        # Specifically rebuild better-sqlite3 if the general rebuild failed
+        cd server
+        npm rebuild better-sqlite3 2>/dev/null || {
+            warning "Failed to rebuild better-sqlite3, trying install..."
+            npm install better-sqlite3 --build-from-source 2>/dev/null || true
+        }
+        cd ..
+        
+        log "Generating initial API key for node connections..."
         # Generate API key using the CLI tool
         API_KEY_OUTPUT=$(node cli.js apikey create "Initial Node Key" -- --admin --viewStats --createApiKey --deleteApiKey --viewApiKeys --usePowerCommands 2>&1 || true)
         API_KEY=$(echo "$API_KEY_OUTPUT" | grep -oP 'Key: \K[a-f0-9]{64}' || echo "")
@@ -443,6 +454,7 @@ setup_application() {
             # Store it for display at the end
         else
             warning "Could not generate API key automatically. You can create one later with:"
+            warning "  cd /var/www/statistics && npm rebuild"
             warning "  vss apikey create 'Node Key' -- --admin"
         fi
     fi
