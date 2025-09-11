@@ -88,18 +88,8 @@ const printSystemInfo = async () => {
     sections.push(['CPU Information', colors.cyan, [
         `Manufacturer: ${cpu.manufacturer}`,
         `Processor: ${cpu.brand}`,
-        `Family: ${cpu.family}`,
-        `Speed: ${cpu.speed} GHz (${cpu.speedMin}-${cpu.speedMax} GHz)`,
-        `Cores: ${cpu.cores} (${cpu.physicalCores} physical)`,
-        `Performance Cores: ${cpu.performanceCores}`,
-        `Efficiency Cores: ${cpu.efficiencyCores}`,
-        `Socket: ${cpu.socket}`,
-        `Virtualization: ${cpu.virtualization ? 'Enabled' : 'Disabled'}`,
-        `Cache:`,
-        `  L1d: ${formatBytes(cpu.cache.l1d)}`,
-        `  L1i: ${formatBytes(cpu.cache.l1i)}`,
-        `  L2: ${formatBytes(cpu.cache.l2)}`,
-        `  L3: ${formatBytes(cpu.cache.l3)}`
+        `Speed: ${cpu.speed} GHz`,
+        `Cores: ${cpu.cores} (${cpu.physicalCores} physical)`
     ]]);
 
     // RAM Info
@@ -110,19 +100,9 @@ const printSystemInfo = async () => {
         `Free: ${formatBytes(ram.free)}`,
         `Active: ${formatBytes(ram.active)}`,
         `Available: ${formatBytes(ram.available)}`,
-        `Swap Total: ${formatBytes(ram.swapTotal)}`,
-        `Swap Used: ${formatBytes(ram.swapUsed)}`,
-        `Swap Free: ${formatBytes(ram.swapFree)}`,
         `Memory Modules:`
     ];
     
-    ram.layout?.forEach((stick: any, index: number) => {
-        memoryInfo.push(`  Module ${index + 1}:`);
-        memoryInfo.push(`    Size: ${formatBytes(stick.size)}`);
-        memoryInfo.push(`    Type: ${stick.type}`);
-        memoryInfo.push(`    Speed: ${stick.clockSpeed} MHz`);
-        memoryInfo.push(`    Form Factor: ${stick.formFactor}`);
-    });
     sections.push(['Memory Information', colors.blue, memoryInfo]);
 
     // GPU Info
@@ -144,13 +124,10 @@ const printSystemInfo = async () => {
         `Model: ${mb.model}`,
         `Version: ${mb.version}`,
         `Serial: ${mb.serial}`,
-        `Virtual: ${mb.virtual ? 'Yes' : 'No'}`,
         'BIOS Information:',
         `  Vendor: ${mb.bios.vendor}`,
         `  Version: ${mb.bios.version}`,
         `  Release Date: ${mb.bios.releaseDate}`,
-        `  Revision: ${mb.bios.revision}`,
-        `  Serial: ${mb.bios.serial}`
     ]]);
 
     // OS Info
@@ -163,25 +140,20 @@ const printSystemInfo = async () => {
         `Kernel: ${os.kernel}`,
         `Architecture: ${os.arch}`,
         `Hostname: ${os.hostname}`,
-        `FQDN: ${os.fqdn}`,
-        `Build: ${os.build}`,
-        `UEFI: ${os.uefi ? 'Yes' : 'No'}`,
-        `Hypervisor: ${os.hypervisor ? 'Yes' : 'No'}`
     ]]);
 
     // Storage Info
     const disks = await INDEX.getDiskInfo();
     const storageInfo = disks.map((disk, diskIndex) => {
-        return disk.devices.map((device, deviceIndex) => [
+        return [
             `Drive ${diskIndex + 1}:`,
-            `  Name: ${device.name}`,
-            `  Vendor: ${device.vendor}`,
-            `  Type: ${device.type}`,
-            `  Size: ${formatBytes(device.size)}`,
-            `  Interface: ${device.interfaceType}`,
-            `  Firmware: ${device.firmwareRevision}`,
-            `  Status: ${device.smartStatus}`
-        ]).flat();
+            `  Device: ${disk.device}`,
+            `  Type: ${disk.type}`,
+            `  Name: ${disk.name}`,
+            `  Size: ${formatBytes(disk.size)}`,
+            `  Used: ${formatBytes(disk.used)} (${Math.round(disk.used/disk.size*100)}%)`,
+            `  Mount: ${disk.mount}`
+        ];
     }).flat();
     sections.push(['Storage Devices', colors.yellow, storageInfo]);
 

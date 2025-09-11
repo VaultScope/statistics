@@ -66,7 +66,7 @@ class CacheService {
     if (this.isRedisAvailable && this.client) {
       try {
         const value = await this.client.get(cacheKey);
-        if (value) {
+        if (value && typeof value === 'string') {
           return JSON.parse(value);
         }
       } catch (error) {

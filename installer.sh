@@ -399,14 +399,16 @@ setup_application() {
         }
         
         log "Initializing server database..."
-        # Database is created automatically on first run
-        # Just ensure the database file has correct permissions
         cd server
-        # Run the server briefly to create database
-        timeout 5s npx ts-node index.ts 2>/dev/null || true
+        # Use the initialization script that creates database with all tables
+        npm run init 2>/dev/null || node scripts/setup-database.js
         if [[ -f "database.db" ]]; then
             chown www-data:www-data database.db* 2>/dev/null || true
-            success "Server database initialized"
+            success "Server database initialized with default admin credentials:"
+            info "  Email: admin@vaultscope.com"
+            info "  Password: admin123"
+        else
+            error "Failed to initialize server database"
         fi
         cd ..
         
@@ -433,10 +435,12 @@ setup_application() {
         }
         
         log "Initializing client database..."
-        # Client database (JSON) is created automatically on first API access
-        # Pre-create it to ensure correct permissions
         cd client
-        cat > database.json << 'EODB'
+        # Use the initialization script that creates database.json
+        npm run init 2>/dev/null || node lib/init-database.js
+        if [[ ! -f "database.json" ]]; then
+            # Fallback to manual creation if script fails
+            cat > database.json << 'EODB'
 {
   "users": [],
   "nodes": [],
@@ -469,6 +473,7 @@ setup_application() {
   ]
 }
 EODB
+        fi
         chown www-data:www-data database.json 2>/dev/null || true
         success "Client database initialized"
         cd ..

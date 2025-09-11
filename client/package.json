@@ -6,7 +6,11 @@
     "dev": "next dev -p 4001",
     "build": "next build",
     "start": "next start -p 4001",
-    "lint": "next lint"
+    "predev": "node lib/init-database.js",
+    "prestart": "node lib/init-database.js",
+    "postinstall": "node lib/init-database.js",
+    "lint": "next lint",
+    "init": "node lib/init-database.js"
   },
   "dependencies": {
     "@types/bcryptjs": "^2.4.6",

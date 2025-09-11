@@ -1,7 +1,7 @@
 'use client';
 
 import { Node } from '@/lib/db-json';
-import { ChevronDown, Cpu, Key, Network, Power, RotateCcw, Server, Activity, GitFork, FileText, Users, Settings } from 'lucide-react';
+import { ChevronDown, Cpu, Key, Network, Power, RotateCcw, Server, Activity, GitFork, FileText, Users, Settings, Wifi } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
@@ -21,6 +21,7 @@ export default function Sidebar({ nodes, currentNode, onPowerAction }: SidebarPr
     { href: `/node/${currentNode.id}/hardware`, label: 'Hardware', icon: Cpu },
     { href: `/node/${currentNode.id}/process`, label: 'Process', icon: Server },
     { href: `/node/${currentNode.id}/network`, label: 'Network', icon: Network },
+    { href: `/node/${currentNode.id}/speedtest`, label: 'Speed Test', icon: Wifi },
     { href: `/node/${currentNode.id}/apikeys`, label: 'API Keys', icon: Key },
     { href: `/node/${currentNode.id}/logs`, label: 'Logs', icon: FileText },
   ];

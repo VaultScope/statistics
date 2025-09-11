@@ -7,7 +7,7 @@ import path from 'path';
 import { performance } from 'perf_hooks';
 
 // Load environment variables
-dotenv.config({ path: path.join(__dirname, '.env') });
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 // Import database and initializer
 import { db } from './db';
@@ -23,6 +23,8 @@ import rateLimitMiddleware from './functions/rateLimit';
 import alertsRoutes from './routes/alerts';
 import authRoutes from './routes/auth';
 import statsRoutes from './routes/stats-simple';
+import networkRoutes from './routes/network';
+import speedtestRoutes from './routes/speedtest';
 
 // Import services
 import { AlertEngine } from './services/alertEngine';
@@ -85,6 +87,8 @@ app.get('/api', (req, res) => {
       alerts: '/api/alerts',
       nodes: '/api/nodes',
       users: '/api/users',
+      network: '/api/network',
+      speedtest: '/api/speedtest',
     },
     documentation: 'https://github.com/yourusername/vaultscope-statistics',
   });
@@ -96,6 +100,8 @@ app.use('/api/auth', authRoutes);
 // Protected routes
 app.use('/api/stats', authMiddleware, rateLimitMiddleware, statsRoutes);
 app.use('/api/alerts', authMiddleware, rateLimitMiddleware, alertsRoutes);
+app.use('/api/network', authMiddleware, rateLimitMiddleware, networkRoutes);
+app.use('/api/speedtest', authMiddleware, rateLimitMiddleware, speedtestRoutes);
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
