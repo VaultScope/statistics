@@ -1018,8 +1018,14 @@ main() {
     save_configuration
     
     display_installation_info
+    
+    # Ensure the script exits cleanly
+    exit 0
 }
 
 trap 'error "Installation failed. Check log at $LOG_FILE"' ERR
 
 main "$@"
+
+# Explicit exit to ensure script terminates
+exit 0
