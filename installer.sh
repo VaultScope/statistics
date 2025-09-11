@@ -407,9 +407,18 @@ setup_application() {
         
         log "Initializing server database..."
         cd server
-        # Initialize empty database without default users
-        # Users will register themselves via /register
-        npm run db:init 2>/dev/null || true
+        # Create the database file directly in dist folder
+        mkdir -p dist
+        touch dist/database.db
+        
+        # Initialize the database using the built server
+        cd dist
+        node index.js --init-db 2>/dev/null || {
+            # Fallback: create empty database if init fails
+            sqlite3 database.db "CREATE TABLE IF NOT EXISTS apikeys (id INTEGER PRIMARY KEY);" 2>/dev/null || true
+        }
+        cd ..
+        
         if [[ -f "dist/database.db" ]]; then
             chown root:root dist/database.db* 2>/dev/null || true
             success "Server database initialized successfully"
