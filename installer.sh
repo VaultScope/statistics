@@ -1,12 +1,12 @@
 #!/bin/bash
 
 #############################################
-# VaultScope Statistics Installer v6.3.1
+# VaultScope Statistics Installer v6.3.2
 #############################################
 
 set -e
 
-VSS_VERSION="6.3.1"
+VSS_VERSION="6.3.2"
 INSTALL_DIR_SERVER="/var/www/vs-statistics-server"
 INSTALL_DIR_CLIENT="/var/www/vs-statistics-client"
 INSTALL_DIR_FULL="/var/www/statistics"
@@ -702,6 +702,7 @@ show_help() {
     echo "  stop            Stop services"
     echo "  restart         Restart services"
     echo "  logs [service]  Show logs (server/client)"
+    echo "  repair          Fix native module issues"
     echo "  update          Update installation"
     echo "  check           Check installation health"
     echo "  apikey          Manage API keys"
@@ -804,6 +805,38 @@ case "$1" in
         fi
         
         echo -e "${GREEN}Update completed${NC}"
+        ;;
+        
+    repair)
+        echo -e "${CYAN}Repairing native modules...${NC}"
+        cd "$INSTALL_DIR"
+        
+        echo "Stopping services..."
+        systemctl stop vss-server vss-client 2>/dev/null || true
+        
+        echo "Rebuilding native modules..."
+        npm rebuild
+        
+        echo "Specifically rebuilding better-sqlite3..."
+        cd server
+        npm rebuild better-sqlite3 || {
+            echo "Failed to rebuild, trying fresh install..."
+            npm install better-sqlite3 --build-from-source
+        }
+        cd ..
+        
+        echo "Restarting services..."
+        if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "server" ]]; then
+            systemctl start vss-server
+            echo -e "${GREEN}✓ Server service restarted${NC}"
+        fi
+        
+        if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "client" ]]; then
+            systemctl start vss-client
+            echo -e "${GREEN}✓ Client service restarted${NC}"
+        fi
+        
+        echo -e "${GREEN}Repair completed! Native modules rebuilt.${NC}"
         ;;
         
     check)
