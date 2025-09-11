@@ -1,12 +1,12 @@
 #!/bin/bash
 
 #############################################
-# VaultScope Statistics Installer v6.3.2
+# VaultScope Statistics Installer v6.3.3
 #############################################
 
 set -e
 
-VSS_VERSION="6.3.2"
+VSS_VERSION="6.3.3"
 INSTALL_DIR_SERVER="/var/www/vs-statistics-server"
 INSTALL_DIR_CLIENT="/var/www/vs-statistics-client"
 INSTALL_DIR_FULL="/var/www/statistics"
@@ -400,47 +400,95 @@ setup_application() {
     
     if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "server" ]]; then
         log "Building server..."
+        cd server
+        
+        # Clean any previous builds
+        rm -rf dist 2>/dev/null || true
+        
         # Build with TypeScript errors allowed
-        cd server && npx tsc --noEmitOnError false && cd .. || {
+        npx tsc --noEmitOnError false || {
             warning "Server build had TypeScript errors but continuing..."
         }
         
-        log "Initializing server database..."
+        # Ensure dist directory exists
+        if [[ ! -d "dist" ]]; then
+            error "Server build failed - dist directory not created"
+            exit 1
+        fi
+        
+        cd ..
+        
+        log "Rebuilding native modules for current Node.js version..."
+        cd "$TARGET_DIR"
+        
+        # Detect Node.js version and architecture
+        NODE_VERSION=$(node -v | cut -d'v' -f2)
+        NODE_ARCH=$(node -p "process.arch")
+        log "Detected Node.js version: $NODE_VERSION, architecture: $NODE_ARCH"
+        
+        # Clean and rebuild ALL native modules
+        log "Cleaning native modules..."
+        rm -rf node_modules/better-sqlite3/build 2>/dev/null || true
+        rm -rf node_modules/*/prebuilds 2>/dev/null || true
+        
+        # Rebuild with proper environment
+        export npm_config_build_from_source=true
+        export npm_config_sqlite=/usr
+        
+        log "Rebuilding all native modules..."
+        npm rebuild || {
+            warning "Failed to rebuild some native modules, trying individual rebuilds..."
+        }
+        
+        # Specifically rebuild better-sqlite3
         cd server
+        log "Rebuilding better-sqlite3 for server..."
+        npm rebuild better-sqlite3 || {
+            warning "Rebuild failed, reinstalling better-sqlite3 from source..."
+            npm uninstall better-sqlite3 2>/dev/null || true
+            npm install better-sqlite3 --build-from-source || {
+                error "Failed to install better-sqlite3"
+            }
+        }
+        
+        log "Initializing server database..."
         # Create the database file directly in dist folder
         mkdir -p dist
-        touch dist/database.db
         
-        # Initialize the database using the built server
+        # Try to initialize using the built server with proper error handling
         cd dist
-        node index.js --init-db 2>/dev/null || {
-            # Fallback: create empty database if init fails
-            sqlite3 database.db "CREATE TABLE IF NOT EXISTS apikeys (id INTEGER PRIMARY KEY);" 2>/dev/null || true
+        log "Running database initialization..."
+        node index.js --init-db 2>&1 | tee /tmp/db-init.log || {
+            if grep -q "MODULE_NOT_FOUND" /tmp/db-init.log; then
+                error "Module not found during database init - native modules may need rebuilding"
+                cd ..
+                npm rebuild better-sqlite3 --build-from-source
+                cd dist
+                node index.js --init-db || {
+                    warning "Database initialization failed, creating manually..."
+                    # Fallback: create empty database if init fails
+                    touch database.db
+                    sqlite3 database.db "CREATE TABLE IF NOT EXISTS apikeys (id INTEGER PRIMARY KEY);" 2>/dev/null || true
+                }
+            else
+                warning "Database initialization had warnings, creating fallback..."
+                touch database.db
+                sqlite3 database.db "CREATE TABLE IF NOT EXISTS apikeys (id INTEGER PRIMARY KEY);" 2>/dev/null || true
+            fi
         }
+        
         cd ..
         
         if [[ -f "dist/database.db" ]]; then
+            chmod 664 dist/database.db
             chown root:root dist/database.db* 2>/dev/null || true
             success "Server database initialized successfully"
             info "Please visit /register to create your first admin user"
         else
             error "Failed to initialize server database"
+            exit 1
         fi
-        cd ..
         
-        log "Rebuilding native modules for current Node.js version..."
-        cd "$TARGET_DIR"
-        # Rebuild ALL native modules, not just better-sqlite3
-        npm rebuild 2>/dev/null || {
-            warning "Failed to rebuild some native modules"
-        }
-        
-        # Specifically rebuild better-sqlite3 if the general rebuild failed
-        cd server
-        npm rebuild better-sqlite3 2>/dev/null || {
-            warning "Failed to rebuild better-sqlite3, trying install..."
-            npm install better-sqlite3 --build-from-source 2>/dev/null || true
-        }
         cd ..
         
         log "Generating initial API key for node connections..."
@@ -514,7 +562,37 @@ EODB
 create_systemd_services() {
     log "Creating systemd services..."
     
+    # Check for port conflicts before creating services
+    check_port_availability() {
+        local port=$1
+        local service_name=$2
+        if lsof -i:$port >/dev/null 2>&1; then
+            warning "Port $port is already in use!"
+            local process_info=$(lsof -i:$port | grep LISTEN | head -1)
+            warning "Process using port: $process_info"
+            
+            # Try to find an alternative port
+            local alt_port=$((port + 10))
+            while lsof -i:$alt_port >/dev/null 2>&1 && [ $alt_port -lt $((port + 100)) ]; do
+                alt_port=$((alt_port + 1))
+            done
+            
+            if [ $alt_port -lt $((port + 100)) ]; then
+                warning "Using alternative port $alt_port for $service_name"
+                echo $alt_port
+            else
+                error "Could not find available port for $service_name"
+                return 1
+            fi
+        else
+            echo $port
+        fi
+    }
+    
     if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "server" ]]; then
+        # Check port availability
+        SERVER_PORT=$(check_port_availability 4000 "vss-server")
+        
         cat > /etc/systemd/system/vss-server.service << EOF
 [Unit]
 Description=VaultScope Statistics Server
@@ -525,13 +603,17 @@ Type=simple
 User=root
 WorkingDirectory=$TARGET_DIR
 Environment="NODE_ENV=production"
-Environment="PORT=4000"
+Environment="PORT=$SERVER_PORT"
+ExecStartPre=/bin/bash -c 'cd $TARGET_DIR && npm rebuild better-sqlite3 2>/dev/null || true'
 ExecStart=/usr/bin/node server/dist/index.js
 Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=vss-server
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=5
 
 [Install]
 WantedBy=multi-user.target
@@ -539,28 +621,54 @@ EOF
         
         systemctl daemon-reload
         systemctl enable vss-server
-        systemctl start vss-server
-        log "Server service created and started"
+        
+        # Start service with error handling
+        if systemctl start vss-server; then
+            log "Server service created and started on port $SERVER_PORT"
+        else
+            error "Failed to start vss-server service"
+            journalctl -u vss-server -n 20 --no-pager
+            
+            # Try to fix common issues
+            log "Attempting to fix native module issues..."
+            cd "$TARGET_DIR/server"
+            npm rebuild better-sqlite3 --build-from-source
+            cd ..
+            
+            # Retry starting the service
+            if systemctl start vss-server; then
+                success "Server service started after fixing native modules"
+            else
+                error "Failed to start server service even after fixes"
+            fi
+        fi
     fi
     
     if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "client" ]]; then
+        # Check port availability for client
+        CLIENT_PORT=$(check_port_availability 4001 "vss-client")
+        
         cat > /etc/systemd/system/vss-client.service << EOF
 [Unit]
 Description=VaultScope Statistics Client (Next.js)
 After=network.target vss-server.service
+Requires=vss-server.service
 
 [Service]
 Type=simple
 User=root
 WorkingDirectory=$TARGET_DIR/client
 Environment="NODE_ENV=production"
-Environment="PORT=4001"
+Environment="PORT=$CLIENT_PORT"
 ExecStart=/usr/bin/npm start
 Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=vss-client
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=5
 
 [Install]
 WantedBy=multi-user.target
@@ -568,8 +676,26 @@ EOF
         
         systemctl daemon-reload
         systemctl enable vss-client
-        systemctl start vss-client
-        log "Client service created and started"
+        
+        # Wait for server to be ready if it was just started
+        if [[ "$INSTALL_TYPE" == "full" ]]; then
+            log "Waiting for server to be ready..."
+            sleep 5
+        fi
+        
+        if systemctl start vss-client; then
+            log "Client service created and started on port $CLIENT_PORT"
+        else
+            error "Failed to start vss-client service"
+            journalctl -u vss-client -n 20 --no-pager
+        fi
+        
+        # Update configuration with actual ports
+        if [[ "$CLIENT_PORT" != "4001" ]] || [[ "$SERVER_PORT" != "4000" ]]; then
+            warning "Services are running on non-standard ports:"
+            [[ "$SERVER_PORT" != "4000" ]] && warning "  Server: http://localhost:$SERVER_PORT"
+            [[ "$CLIENT_PORT" != "4001" ]] && warning "  Client: http://localhost:$CLIENT_PORT"
+        fi
     fi
 }
 
@@ -814,7 +940,17 @@ case "$1" in
         echo "Stopping services..."
         systemctl stop vss-server vss-client 2>/dev/null || true
         
-        echo "Rebuilding native modules..."
+        echo "Detecting Node.js environment..."
+        NODE_VERSION=$(node -v)
+        NODE_ARCH=$(node -p "process.arch")
+        echo "Node.js version: $NODE_VERSION, architecture: $NODE_ARCH"
+        
+        echo "Cleaning old native modules..."
+        rm -rf node_modules/better-sqlite3/build 2>/dev/null || true
+        rm -rf node_modules/*/prebuilds 2>/dev/null || true
+        
+        echo "Rebuilding all native modules..."
+        export npm_config_build_from_source=true
         npm rebuild
         
         echo "Specifically rebuilding better-sqlite3..."

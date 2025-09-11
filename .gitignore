@@ -45,6 +45,10 @@ lerna-debug.log*
 coverage/
 .nyc_output/
 
+# Test installations
+test-install/
+test-*/
+
 # Temporary files
 tmp/
 temp/
