@@ -223,7 +223,14 @@ perform_uninstall() {
     log "Removing configuration..."
     rm -rf "$CONFIG_DIR"
     
+    log "Removing log directories..."
+    rm -rf "$LOG_DIR"
+    
     if prompt_yes_no "Remove Nginx configuration?"; then
+        rm -f /etc/nginx/sites-enabled/vaultscope-api
+        rm -f /etc/nginx/sites-enabled/vaultscope-client
+        rm -f /etc/nginx/sites-available/vaultscope-api
+        rm -f /etc/nginx/sites-available/vaultscope-client
         rm -f /etc/nginx/sites-enabled/vss-server
         rm -f /etc/nginx/sites-enabled/vss-client
         rm -f /etc/nginx/sites-available/vss-server
@@ -400,32 +407,35 @@ setup_application() {
         
         log "Initializing server database..."
         cd server
-        # Use the initialization script that creates database with all tables
-        npm run init 2>/dev/null || node scripts/setup-database.js
-        if [[ -f "database.db" ]]; then
-            chown www-data:www-data database.db* 2>/dev/null || true
-            success "Server database initialized with default admin credentials:"
-            info "  Email: admin@vaultscope.com"
-            info "  Password: admin123"
+        # Initialize empty database without default users
+        # Users will register themselves via /register
+        npm run db:init 2>/dev/null || true
+        if [[ -f "dist/database.db" ]]; then
+            chown root:root dist/database.db* 2>/dev/null || true
+            success "Server database initialized successfully"
+            info "Please visit /register to create your first admin user"
         else
             error "Failed to initialize server database"
         fi
         cd ..
         
-        log "Generating admin API key..."
-        cd "$TARGET_DIR/server"
+        log "Generating initial API key for node connections..."
+        cd "$TARGET_DIR"
         # Ensure native modules are built for current Node version
         npm rebuild better-sqlite3 2>/dev/null || true
-        API_KEY_OUTPUT=$(npm run apikey create "Admin Key" -- --admin --viewStats --createApiKey --deleteApiKey --viewApiKeys --usePowerCommands 2>&1 || true)
-        API_KEY=$(echo "$API_KEY_OUTPUT" | grep -oP 'API Key: \K[a-f0-9]{64}' || echo "")
+        
+        # Generate API key using the CLI tool
+        API_KEY_OUTPUT=$(node cli.js apikey create "Initial Node Key" -- --admin --viewStats --createApiKey --deleteApiKey --viewApiKeys --usePowerCommands 2>&1 || true)
+        API_KEY=$(echo "$API_KEY_OUTPUT" | grep -oP 'Key: \K[a-f0-9]{64}' || echo "")
+        ADMIN_KEY="$API_KEY"
+        
         if [[ -n "$API_KEY" ]]; then
-            success "Admin API key generated successfully"
+            success "API key generated successfully"
+            # Store it for display at the end
         else
             warning "Could not generate API key automatically. You can create one later with:"
-            warning "  cd /var/www/statistics && npm rebuild better-sqlite3"
-            warning "  vss apikey create 'Admin Key' -- --admin"
+            warning "  vss apikey create 'Node Key' -- --admin"
         fi
-        cd "$TARGET_DIR"
     fi
     
     if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "client" ]]; then
@@ -914,12 +924,21 @@ display_installation_info() {
         fi
         echo ""
         
-        if [[ -n "$API_KEY" ]]; then
-            echo -e "${YELLOW}IMPORTANT - Save these credentials:${NC}"
-            echo "Admin API Key: $API_KEY"
+        if [[ -n "$ADMIN_KEY" ]]; then
+            echo ""
+            echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo -e "${YELLOW}IMPORTANT - Save this API key for node connections:${NC}"
+            echo -e "${GREEN}API Key: $ADMIN_KEY${NC}"
+            echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
             echo ""
             echo "Use this API key when configuring nodes to connect to this server."
         fi
+        
+        echo ""
+        echo -e "${CYAN}First Time Setup:${NC}"
+        echo "1. Visit ${GREEN}/register${NC} to create your admin account"
+        echo "2. Use the API key above to connect nodes to this server"
+        echo "3. Manage API keys with: vss apikey list"
     fi
     
     if [[ "$INSTALL_TYPE" == "full" ]] || [[ "$INSTALL_TYPE" == "client" ]]; then
